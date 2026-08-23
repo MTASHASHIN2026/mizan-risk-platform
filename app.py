@@ -7,36 +7,86 @@ import io
 
 # Page configuration
 st.set_page_config(
-    page_title="منصة ميزان - Mizan Risk Detection Platform",
+    page_title="منصة ميزان | Mizan Audit & Risk Platform",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for RTL and Arabic UI
+# Custom CSS for Professional Financial Branding
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Inter:wght@400;600;700&display=swap');
+    
     html, body, [class*="css"] {
-        font-family: 'Cairo', sans-serif;
+        font-family: 'Cairo', 'Inter', sans-serif;
         direction: rtl;
         text-align: right;
-    }
-    .main-header {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        color: white;
-        padding: 2rem;
-        border-radius: 12px;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-    }
-    .metric-card {
         background-color: #f8fafc;
+    }
+    
+    /* Top Header Branding */
+    .top-brand {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #0f172a;
+        color: #ffffff;
+        padding: 1.2rem 2rem;
+        border-radius: 14px;
+        margin-bottom: 1.5rem;
+        border-right: 6px solid #3b82f6;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+    
+    .brand-title-ar {
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin: 0;
+        color: #ffffff;
+    }
+    
+    .brand-title-en {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #94a3b8;
+        direction: ltr;
+        text-align: left;
+    }
+
+    /* Explanation Banner */
+    .hero-banner {
+        background: #ffffff;
         border: 1px solid #e2e8f0;
-        border-radius: 10px;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    
+    .hero-en {
+        direction: ltr;
+        text-align: left;
+        font-family: 'Inter', sans-serif;
+        color: #475569;
+        font-size: 0.95rem;
+        border-top: 1px solid #f1f5f9;
+        padding-top: 1rem;
+        margin-top: 1rem;
+    }
+
+    /* Metric Cards */
+    .metric-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
         padding: 1.2rem;
         text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        transition: transform 0.2s ease;
+    }
+    .metric-card:hover {
+        transform: translateY(-2px);
     }
     .metric-value {
         font-size: 2rem;
@@ -44,20 +94,36 @@ st.markdown("""
         color: #0f172a;
     }
     .metric-label {
-        font-size: 0.9rem;
+        font-size: 0.88rem;
         color: #64748b;
-    }
-    .stAlert {
-        border-radius: 8px;
+        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Header Section
+# Top Right Brand Header
 st.markdown("""
-<div class="main-header">
-    <h1 style="margin:0; font-size: 2.2rem;">⚖️ منصة ميزان (Mizan) للرقابة المالية واكتشاف المخاطر</h1>
-    <p style="margin-top:0.5rem; opacity:0.85; font-size:1.1rem;">أداة التدقيق الذكي والرقابة الداخلية المتقدمة - كشف التكرار، انحرافات بنفورد، التجزئة، والمصروفات الشاذة</p>
+<div class="top-brand">
+    <div>
+        <div class="brand-title-ar">⚖️ منصة ميزان للرقابة المالية واكتشاف المخاطر</div>
+        <div style="color: #60a5fa; font-size: 0.9rem; margin-top: 4px;">المنظومة الذكية للتدقيق المحاسبي المتقدم والتدقيق الداخلي</div>
+    </div>
+    <div class="brand-title-en">
+        <div><strong>MIZAN PLATFORM</strong></div>
+        <div style="font-size: 0.8rem; color: #cbd5e1;">Financial Risk Detection & Audit Intelligence</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Hero Section with Bilingual Explanation
+st.markdown("""
+<div class="hero-banner">
+    <div style="font-size: 1.05rem; color: #1e293b; line-height: 1.6;">
+        <strong>مرحباً بك في منصة ميزان (Mizan Platform):</strong> الأداة الاحترافية المصممة للمدراء الماليين والمراجعين الداخليين لكشف أخطاء القيود، العمليات الشاخصة، شبهات التجزئة، وتطبيق قانون بنفورد التحليلي لمكافحة الاحتيال المالي.
+    </div>
+    <div class="hero-en">
+        <strong>Mizan Financial Intelligence Platform:</strong> An enterprise-grade automated forensic auditing engine. Designed for Internal Auditors, CFOs, and Risk Teams to detect duplicate journal entries, authorization splitting, Z-Score outliers, and Benford’s Law statistical anomalies in real-time.
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -80,7 +146,7 @@ st.sidebar.markdown("---")
 z_threshold = st.sidebar.slider("حد الانحراف المعياري (Z-Score)", 1.5, 4.0, 3.0, 0.1)
 split_limit = st.sidebar.number_input("حد تجزئة المعاملات (سقف الصلاحية)", value=5000.0, step=500.0)
 
-# Template File Generator
+# Sample Data Generator
 def generate_sample_data():
     np.random.seed(42)
     n = 150
@@ -124,18 +190,18 @@ uploaded_file = st.file_uploader("قم برفع كشف الحركات المال
 if uploaded_file is not None:
     df = pd.read_excel(uploaded_file)
     
-    st.markdown("### 📋 معاينة البيانات المرفوعة")
+    st.markdown("### 📋 معاينة البيانات المرفوعة / Data Preview")
     st.dataframe(df.head(10), use_container_width=True)
     
     cols = df.columns.tolist()
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        amount_col = st.selectbox("عمود المبلغ:", cols, index=cols.index("المبلغ") if "المبلغ" in cols else 0)
+        amount_col = st.selectbox("عمود المبلغ (Amount Column):", cols, index=cols.index("المبلغ") if "المبلغ" in cols else 0)
     with col2:
-        date_col = st.selectbox("عمود التاريخ:", cols, index=cols.index("التاريخ") if "التاريخ" in cols else 0)
+        date_col = st.selectbox("عمود التاريخ (Date Column):", cols, index=cols.index("التاريخ") if "التاريخ" in cols else 0)
     with col3:
-        inv_col = st.selectbox("عمود رقم السند/الفاتورة:", cols, index=cols.index("رقم_السند_الفاتورة") if "رقم_السند_الفاتورة" in cols else 0)
+        inv_col = st.selectbox("عمود رقم السند/الفاتورة (Doc/Inv Ref):", cols, index=cols.index("رقم_السند_الفاتورة") if "رقم_السند_الفاتورة" in cols else 0)
         
     df['Amount_Clean'] = pd.to_numeric(df[amount_col], errors='coerce').fillna(0)
     df['Date_Clean'] = pd.to_datetime(df[date_col], errors='coerce')
@@ -176,13 +242,13 @@ if uploaded_file is not None:
         risk_color = "#10b981"
         
     st.markdown("---")
-    st.markdown("## 📊 نتائج التقييم الشامل للمخاطر (Mizan Dashboard)")
+    st.markdown("## 📊 لوحة المؤشرات التنفيذية | Executive Risk Dashboard")
     
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     with kpi1:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">درجة المخاطر الإجمالية</div>
+            <div class="metric-label">درجة المخاطر / Risk Score</div>
             <div class="metric-value" style="color:{risk_color};">{total_risk_score} / 100</div>
             <small>{risk_level}</small>
         </div>
@@ -190,7 +256,7 @@ if uploaded_file is not None:
     with kpi2:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">الحركات المكررة المكتشفة</div>
+            <div class="metric-label">القيود المكررة / Duplicates</div>
             <div class="metric-value">{len(dup_df)}</div>
             <small>مطابقة المبلغ ورقم السند</small>
         </div>
@@ -198,15 +264,15 @@ if uploaded_file is not None:
     with kpi3:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">القيم الاستثنائية الشاخصة</div>
+            <div class="metric-label">القيم الشاخصة / Outliers</div>
             <div class="metric-value">{len(outliers_df)}</div>
-            <small>تتجاوز Z-Score {z_threshold}</small>
+            <small>Z-Score > {z_threshold}</small>
         </div>
         """, unsafe_allow_html=True)
     with kpi4:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">انحراف قانون بنفورد (MAD)</div>
+            <div class="metric-label">مؤشر بنفورد / Benford MAD</div>
             <div class="metric-value">{mad:.4f}</div>
             <small>{"مؤشر تلاعب" if mad > 0.012 else "توزيع طبيعي"}</small>
         </div>
@@ -217,61 +283,61 @@ if uploaded_file is not None:
     v_col1, v_col2 = st.columns(2)
     
     with v_col1:
-        st.markdown("#### 1. مطابقة التوزيع المالي لقانون بنفورد (Benford's Law)")
+        st.markdown("#### 1. تحليل قانون بنفورد للرقم الأول | Benford's Law Analysis")
         exp_digits = [np.log10(1 + 1/d) for d in range(1, 10)]
         fig_benford = go.Figure()
-        fig_benford.add_trace(go.Bar(x=list(range(1, 10)), y=counts.values, name="التوزيع الفعلي", marker_color='#3b82f6'))
-        fig_benford.add_trace(go.Scatter(x=list(range(1, 10)), y=exp_digits, mode='lines+markers', name="التوزيع المتوقع", line=dict(color='#ef4444', width=3)))
-        fig_benford.update_layout(xaxis_title="الرقم الأول", yaxis_title="النسبة المئوية", height=350, margin=dict(l=20, r=20, t=30, b=20))
+        fig_benford.add_trace(go.Bar(x=list(range(1, 10)), y=counts.values, name="التوزيع الفعلي", marker_color='#2563eb'))
+        fig_benford.add_trace(go.Scatter(x=list(range(1, 10)), y=exp_digits, mode='lines+markers', name="التوزيع المتوقع", line=dict(color='#dc2626', width=3)))
+        fig_benford.update_layout(xaxis_title="الرقم الأول (First Digit)", yaxis_title="النسبة المئوية", height=350, margin=dict(l=20, r=20, t=30, b=20))
         st.plotly_chart(fig_benford, use_container_width=True)
         
     with v_col2:
-        st.markdown("#### 2. توزيع ملخص الانحرافات والمخاطر المكتشفة")
+        st.markdown("#### 2. توزيع الملاحظات والمخاطر | Anomalies Distribution")
         anomalies_summary = {
             "قيود مكررة": len(dup_df),
             "قيم شاذة مرتفعة": len(outliers_df),
             "شبهة تجزئة مبالغ": len(split_candidates),
             "قيود نهاية الأسبوع": len(weekend_df)
         }
-        fig_pie = px.pie(values=list(anomalies_summary.values()), names=list(anomalies_summary.keys()), hole=0.4)
+        fig_pie = px.pie(values=list(anomalies_summary.values()), names=list(anomalies_summary.keys()), hole=0.4, color_discrete_sequence=px.colors.qualitative.Set1)
         fig_pie.update_layout(height=350, margin=dict(l=20, r=20, t=30, b=20))
         st.plotly_chart(fig_pie, use_container_width=True)
 
     # TABS
-    st.markdown("### 🔍 التفاصيل التقنية للقيود والعمليات المريبة")
+    st.markdown("### 🔍 تفاصيل النتائج والتدقيق التفصيلي | Detailed Audit Breakdown")
     tab1, tab2, tab3, tab4 = st.tabs(["🔴 القيود المكررة", "⚠️ المصروفات المرتفعة", "⚡ تجزئة الصلاحيات", "📅 قيود العطلات"])
     
     with tab1:
         if not dup_df.empty:
             st.error(f"تم العثور على {len(dup_df)} عملية مكررة:")
-            st.dataframe(dup_df[[date_col, inv_col, amount_col, 'Z_Score']], use_container_width=True)
+            st.dataframe(dup_df.drop(columns=['Is_Weekend'], errors='ignore'), use_container_width=True)
         else:
             st.success("لم يتم كشف أي قيود مكررة.")
             
     with tab2:
         if not outliers_df.empty:
             st.warning(f"تم كشف {len(outliers_df)} عملية بمبالغ مرتفعة جداً:")
-            st.dataframe(outliers_df[[date_col, inv_col, amount_col, 'Z_Score']], use_container_width=True)
+            st.dataframe(outliers_df.drop(columns=['Is_Weekend'], errors='ignore'), use_container_width=True)
         else:
             st.success("جميع المبالغ ضمن الحدود الطبيعية.")
             
     with tab3:
         if not split_candidates.empty:
             st.info(f"تم رصد {len(split_candidates)} عملية تحت سقف التوقيع ({split_limit:.2f}):")
-            st.dataframe(split_candidates[[date_col, inv_col, amount_col]], use_container_width=True)
+            st.dataframe(split_candidates.drop(columns=['Is_Weekend'], errors='ignore'), use_container_width=True)
         else:
             st.success("لا توجد مؤشرات على تجزئة المعاملات.")
             
     with tab4:
         if not weekend_df.empty:
             st.write(f"العمليات المعتمدة في أيام العطلات:")
-            st.dataframe(weekend_df[[date_col, inv_col, amount_col]], use_container_width=True)
+            st.dataframe(weekend_df.drop(columns=['Is_Weekend'], errors='ignore'), use_container_width=True)
         else:
             st.success("لا توجد قيود في العطلات.")
 
     # EXPORT
     st.markdown("---")
-    st.markdown("### 📑 تصدير تقرير التدقيق النهائي")
+    st.markdown("### 📑 تصدير التقرير المحاسبي | Export Audit Report")
     output_excel = io.BytesIO()
     with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name="كشف البيانات الكامل", index=False)

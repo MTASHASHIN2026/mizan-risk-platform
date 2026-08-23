@@ -41,10 +41,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. نظام تسجيل الدخول الآمن (Super Admin)
+# 2. نظام الدخول وتسجيل الخروج (Auth System)
 # ==========================================
+USERS_DB = {
+    "admin": {"password": "mizan2026", "name": "المدير العام", "role": "Super Admin"},
+    "auditor": {"password": "audit123", "name": "مدقق مالي أول", "role": "Auditor"},
+    "user1": {"password": "12345", "name": "مستخدم تجريبي", "role": "Viewer"}
+}
+
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
+    st.session_state['current_user'] = None
+    st.session_state['current_role'] = None
 
 if not st.session_state['authenticated']:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -57,11 +65,13 @@ if not st.session_state['authenticated']:
         </div>
         """, unsafe_allow_html=True)
         with st.form("login_form"):
-            username = st.text_input("اسم المستخدم | Username")
+            username = st.text_input("اسم المستخدم | Username").strip().lower()
             password = st.text_input("كلمة المرور | Password", type="password")
             if st.form_submit_button("تسجيل الدخول الآمن | Secure Login", use_container_width=True):
-                if username == "admin" and password == "mizan2026":
+                if username in USERS_DB and USERS_DB[username]['password'] == password:
                     st.session_state['authenticated'] = True
+                    st.session_state['current_user'] = USERS_DB[username]['name']
+                    st.session_state['current_role'] = USERS_DB[username]['role']
                     st.rerun()
                 else:
                     st.error("بيانات الدخول غير صحيحة | Invalid Credentials")
@@ -103,21 +113,41 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# شريط الإعدادات الجانبي
-st.sidebar.header("⚙️ إعدادات محرك المخاطر | Control Settings")
-z_threshold = st.sidebar.slider("حد القيم الشاذة المعياري (Z-Score)", 1.5, 5.0, 3.0, 0.1)
-split_limit = st.sidebar.number_input("سقف الصلاحية المعتمد (Authorization Limit)", value=5000.0, step=500.0)
+# --- إعدادات القائمة الجانبية (Sidebar) ---
+st.sidebar.info(f"👤 **المستخدم:** {st.session_state['current_user']}\n\n🛡️ **الصلاحية:** {st.session_state['current_role']}")
 
+if st.sidebar.button("🚪 تسجيل الخروج | Logout", use_container_width=True):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.header("⚙️ إعدادات محرك المخاطر")
+z_threshold = st.sidebar.slider("حد القيم الشاذة المعياري (Z-Score)", 1.5, 5.0, 3.0, 0.1)
+split_limit = st.sidebar.number_input("سقف الصلاحية المعتمد", value=5000.0, step=500.0)
+
+# --- دليل قواعد التدقيق المطبقة ---
+with st.expander("📚 دليل قواعد التدقيق المطبقة (Audit Rules Reference)", expanded=False):
+    st.markdown("""
+    **يعمل محرك ميزان على فحص البيانات المالية بناءً على 5 قواعد رقابية رئيسية:**
+    
+    *   **🔴 القيود المكررة (Duplicates):** رصد تكرار نفس المبلغ ورقم المرجع في أكثر من حركة، مما قد يشير إلى صرف مزدوج.
+    *   **⚠️ القيم الشاذة (Outliers):** استخدام التحليل الإحصائي (Z-Score) لرصد المبالغ غير الطبيعية مقارنة بمتوسط حجم العمليات اليومية للشركة.
+    *   **⚡ شبهة التجزئة (Split Transactions):** رصد المبالغ التي تقترب جداً (85% إلى 99%) من سقف الصلاحية المعتمد، بهدف اكتشاف محاولات تجنب طلب موافقات إدارية عليا.
+    *   **🔵 الأرقام المغلقة (Round Numbers):** استخراج المبالغ الكبيرة التي لا تحتوي على كسور (مضاعفات الألف)، والتي قد تشير إلى تقديرات غير دقيقة أو محاولات اختلاس.
+    *   **🔍 الكلمات المريبة (Suspicious Keywords):** الفحص النصي لحقل البيان للبحث عن كلمات (مثل: تسوية، نثريات، مؤقت) تستخدم غالباً لتمرير قيود غير مدعمة بمستندات.
+    *   **📉 قانون بنفورد (Benford's Law):** فحص التوزيع الاحتمالي للرقم الأول من المبالغ لكشف الأرقام المولدة عشوائياً أو المختلقة يدوياً.
+    """)
+
+# --- معالجة الملفات ---
 uploaded_file = st.file_uploader("قم برفع كشف الحركات المالية (ملف Excel)", type=["xlsx", "xls"])
 
 if uploaded_file:
-    # قراءة وتنظيف هيكل الملف
     raw_df = pd.read_excel(uploaded_file)
     df = raw_df.dropna(how='all').dropna(how='all', axis=1)
     cols = [str(c).strip() for c in df.columns]
     df.columns = cols
 
-    # التعرف الذكي على الأعمدة
     default_amt = auto_detect_column(cols, ['مبلغ', 'المبلغ', 'مدين', 'دائن', 'amount', 'debit', 'val'])
     default_date = auto_detect_column(cols, ['تاريخ', 'التاريخ', 'date', 'time', 'dt'])
     default_ref = auto_detect_column(cols, ['مرجع', 'سند', 'فاتورة', 'رقم', 'ref', 'inv', 'doc', 'id'])
@@ -130,13 +160,11 @@ if uploaded_file:
     with c3: ref_col = st.selectbox("المرجع/رقم السند (Ref):", cols, index=cols.index(default_ref))
     with c4: desc_col = st.selectbox("البيان (Description):", cols, index=cols.index(default_desc))
 
-    # تعقيم وتجهيز البيانات
     df['Amt_Clean'] = pd.to_numeric(df[amount_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
     df['Date_Clean'] = pd.to_datetime(df[date_col], errors='coerce')
     df['Ref_Clean'] = df[ref_col].astype(str).str.strip()
     valid_df = df[df['Amt_Clean'] > 0].copy()
 
-    # تشغيل قواعد الرقابة
     dup_df = valid_df[valid_df.duplicated(subset=['Ref_Clean', 'Amt_Clean'], keep=False)]
     
     mean_v, std_v = valid_df['Amt_Clean'].mean(), valid_df['Amt_Clean'].std()
@@ -151,7 +179,6 @@ if uploaded_file:
     
     counts, mad = benford_first_digit_dist(valid_df['Amt_Clean'])
 
-    # حساب مؤشر المخاطر الإجمالي
     dup_p = min(len(dup_df) * 2, 25)
     outlier_p = min(len(outlier_df) * 5, 25)
     split_p = min(len(split_df) * 4, 20)
@@ -204,7 +231,6 @@ if uploaded_file:
         </div>
         """, unsafe_allow_html=True)
 
-    # الرسوم البيانية المحسنة للقراءة
     st.markdown("<br>", unsafe_allow_html=True)
     c_col1, c_col2 = st.columns(2)
     
@@ -272,7 +298,6 @@ if uploaded_file:
         )
         st.plotly_chart(fig_p, use_container_width=True)
 
-    # جداول السجلات الرقابية التفصيلية
     st.markdown("### 🔎 سجل التفاصيل والقيود الشاخصة | Risk Audit Logs")
     t1, t2, t3, t4, t5 = st.tabs(["🔴 القيود المكررة", "⚠️ القيم الشاذة", "⚡ شبهة التجزئة", "🔍 الكلمات المريبة", "🔵 الأرقام المغلقة"])
     
@@ -288,7 +313,6 @@ if uploaded_file:
     with t4: render_tab_df(keyword_df)
     with t5: render_tab_df(round_df)
 
-    # تصدير التقرير
     st.markdown("---")
     output_excel = io.BytesIO()
     with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:

@@ -149,11 +149,11 @@ st.markdown(f"""
 <div class="bilingual-header">
     <div>
         <div style="font-size: 1.6rem; font-weight: 700; color: #ffffff;">⚖️ منصة ميزان للرقابة المالية وإدارة المخاطر</div>
-        <div style="color: #fcd34d; margin-top: 4px; font-size: 0.95rem;">المنصة الذكية للتدقيق واكتشاف المخاطر المحاسبية | الجهة: {st.session_state['current_company']}</div>
+        <div style="color: #fcd34d; margin-top: 4px; font-size: 0.95rem;" المنصة الذكية للرقابة المالية واكتشاف المخاطر المحاسبية | : {st.session_state['current_company']}</div>
     </div>
     <div style="font-size: 1rem; font-weight: 600; color: #cbd5e1; direction: ltr; text-align: left;">
         <div><strong>MIZAN PLATFORM</strong></div>
-        <div style="font-size: 0.8rem; color: #fcd34d;">By Mohammad Almtashashin</div>
+        <div style="font-size: 0.8rem; color: #fcd34d;">By mizan</div>
     </div>
 </div>
 """, unsafe_allow_html=True)

@@ -418,24 +418,57 @@ if page == "الرئيسية":
 elif page == "تحليل البيانات":
     st.title("تحليل البيانات المالية")
     st.write("ارفع ملف CSV أو XLSX. يفضل وجود أعمدة مثل: التاريخ، المبلغ، رقم الفاتورة، الوصف، المورد، المدين، الدائن، الضريبة.")
-    uploaded = st.file_uploader("رفع ملف البيانات", type=["csv","xlsx"])
+    st.info("يمكنك رفع CSV أو Excel بصيغة XLSX أو XLS (Excel القديم). إذا ظهر في المتصفح أن نوع الملف غير مسموح، اضغط اختيار ملف مرة أخرى وتأكد أن اسم الملف ينتهي بـ .xlsx أو .xls أو .csv.")
+
+    uploaded = st.file_uploader(
+        "رفع ملف البيانات المالية",
+        type=["csv", "xlsx", "xls"],
+        accept_multiple_files=False,
+        help="الصيغ المدعومة: CSV / XLSX / XLS"
+    )
+
     if uploaded:
         try:
-            if uploaded.name.lower().endswith(".csv"):
-                df = pd.read_csv(uploaded)
+            filename = uploaded.name.lower().strip()
+            file_bytes = uploaded.getvalue()
+
+            if filename.endswith(".csv"):
+                # محاولة UTF-8 ثم Windows-1256 للملفات العربية
+                try:
+                    df = pd.read_csv(io.BytesIO(file_bytes), encoding="utf-8-sig")
+                except UnicodeDecodeError:
+                    df = pd.read_csv(io.BytesIO(file_bytes), encoding="cp1256")
+            elif filename.endswith(".xlsx"):
+                df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
+            elif filename.endswith(".xls"):
+                df = pd.read_excel(io.BytesIO(file_bytes), engine="xlrd")
             else:
-                df = pd.read_excel(uploaded)
+                raise ValueError("صيغة الملف غير مدعومة. استخدم CSV أو XLSX أو XLS.")
+
+            # تنظيف أسماء الأعمدة والمسافات
+            df.columns = [str(c).strip() for c in df.columns]
+            df = df.dropna(how="all").reset_index(drop=True)
+
+            if df.empty:
+                raise ValueError("الملف لا يحتوي على صفوف بيانات بعد حذف الصفوف الفارغة.")
+
             st.session_state.data = df
-            st.success(f"تم تحميل {len(df):,} عملية.")
+            st.success(f"تم تحميل الملف بنجاح: {uploaded.name} — عدد العمليات: {len(df):,}")
+            st.caption("الأعمدة المكتشفة: " + " | ".join(map(str, df.columns.tolist())))
             st.dataframe(df.head(20), use_container_width=True, height=350)
+
             if st.button("تشغيل محرك الـ 50 قاعدة", type="primary", use_container_width=True):
-                with st.spinner("جاري تحليل العمليات وتشغيل قواعد الرقابة..."):
+                with st.spinner("جاري تحليل العمليات وتشغيل 50 قاعدة رقابية..."):
                     findings, summary = analyze(df, st.session_state.enabled)
                 st.session_state.findings = findings
                 st.session_state.summary = summary
-                st.success("اكتمل التحليل.")
+                st.success(f"اكتمل التحليل. تم فحص {len(df):,} عملية.")
+
+        except ImportError:
+            st.error("ملفات XLS القديمة تحتاج مكتبة xlrd. تأكد أن requirements.txt يحتوي على xlrd>=2.0.1 ثم أعد تشغيل التطبيق.")
         except Exception as e:
-            st.error(f"تعذر قراءة الملف: {e}")
+            st.error(f"تعذر قراءة الملف: {type(e).__name__}: {e}")
+            st.warning("إذا كان الملف Excel قديمًا بصيغة XLS، استخدم النسخة XLSX أو ارفع الملف بصيغة CSV.")
 
 # -----------------------------
 # Results

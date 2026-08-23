@@ -6,12 +6,16 @@ import plotly.graph_objects as go
 import io
 import re
 from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 # ==========================================
 # 1. إعدادات الصفحة والتصميم الأساسي
 # ==========================================
 st.set_page_config(
-    page_title="منصة ميزان | Mizan Risk Management",
+    page_title="منصة ميزان | Mizan Risk & Financial Control",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -38,9 +42,14 @@ st.markdown("""
     .metric-value { font-size: 2.2rem; font-weight: 700; color: #0f172a; margin: 5px 0; }
     .metric-label-ar { font-size: 1rem; color: #334155; font-weight: 700; }
     .metric-label-en { font-size: 0.8rem; color: #64748b; direction: ltr; }
+    
+    .rules-container {
+        text-align: right; background-color: #ffffff; padding: 15px; 
+        border-radius: 8px; border: 1px solid #e2e8f0; line-height: 1.8;
+    }
     .watermark {
         position: fixed; bottom: 10px; right: 15px; font-size: 0.75rem; 
-        color: #94a3b8; background: rgba(255,255,255,0.8); padding: 4px 10px; 
+        color: #94a3b8; background: rgba(255,255,255,0.9); padding: 4px 10px; 
         border-radius: 6px; z-index: 999; border: 1px solid #e2e8f0;
     }
 </style>
@@ -52,7 +61,7 @@ st.markdown("""
 # ==========================================
 if 'USERS_DB' not in st.session_state:
     st.session_state['USERS_DB'] = {
-        "admin": {"password": "mizan2026", "name": "المدير العام", "role": "Super Admin", "company": "ميزان للرقمية"},
+        "admin": {"password": "mizan2026", "name": "المدير العام", "role": "Super Admin", "company": "مؤسسة ميزان للرقابة"},
         "auditor": {"password": "audit123", "name": "مدقق مالي أول", "role": "Auditor", "company": "شركة التدقيق الحر"},
     }
 
@@ -132,13 +141,13 @@ def auto_detect_column(columns, keywords):
     return columns[0] if len(columns) > 0 else None
 
 # ==========================================
-# 4. الواجهة الرئيسية ومحرك المخاطر
+# 4. الترويسة الرئيسية ولوحة التحكم
 # ==========================================
 st.markdown(f"""
 <div class="bilingual-header">
     <div>
         <div style="font-size: 1.6rem; font-weight: 700;">⚖️ منصة ميزان للرقابة المالية وإدارة المخاطر</div>
-        <div style="color: #60a5fa; margin-top: 4px; font-size: 0.95rem;">المنصة الذكية للتدقيق وكشف الاحتيال المحاسبي | المؤسسة: {st.session_state['current_company']}</div>
+        <div style="color: #60a5fa; margin-top: 4px; font-size: 0.95rem;">المنصة الذكية للتدقيق واكتشاف المخاطر المحاسبية | الجهة: {st.session_state['current_company']}</div>
     </div>
     <div style="font-size: 1rem; font-weight: 600; color: #94a3b8; direction: ltr; text-align: left;">
         <div><strong>MIZAN PLATFORM</strong></div>
@@ -147,7 +156,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# القائمة الجانبية ومعلومات المستخدم
 st.sidebar.info(f"👤 **المسؤول:** {st.session_state['current_user']}\n\n🏢 **الشركة:** {st.session_state['current_company']}\n\n🛡️ **الصلاحية:** {st.session_state['current_role']}")
 
 if st.sidebar.button("🚪 تسجيل الخروج", use_container_width=True):
@@ -161,77 +169,79 @@ z_threshold = st.sidebar.slider("حد القيم الشاذة المعياري (
 split_limit = st.sidebar.number_input("سقف الصلاحية المعتمد", value=5000.0, step=500.0)
 
 # ==========================================
-# 5. معايير وقواعد التدقيق الـ 50 الكاملة والمنسقة
+# 5. معايير وقواعد التدقيق الـ 50 (منسقة ومحاذاة لليمين)
 # ==========================================
 with st.expander("📚 دليل الـ 50 قاعدة رقابة مالية ومعيار محاسبي معتمد (Mizan 50 Rules)", expanded=False):
     st.markdown("""
-    تم تفعيل وتقسيم قواعد الفحص الـ 50 داخل محرك ميزان استناداً إلى أطر العمل الدولية (COSO، IIA، ISAs):
+    <div class="rules-container">
+    <b>يعتمد محرك ميزان للرقابة المالية على 50 قاعدة تدقيق عالمية مستوحاة من أطر COSO و IIA:</b><br><br>
     
-    ### 🛡️ أولاً: قواعد بيئة الرقابة والالتزام بالحوكمة (القواعد 1 - 10)
-    1. **فصل الصلاحيات (Segregation of Duties):** التحقق من عدم تداخل صلاحيات إدخال واعتماد القيود.
-    2. **سقف التفويض المالي:** رصد أي عمليات تتجاوز الصلاحيات المخولة للموظف دون إشعار.
-    3. **التحقق من هوية المنشئ:** مطابقة معرف المستخدم المدخل مع سجلات النظام.
-    4. **اكتمال مسار التدقيق (Audit Trail):** التأكد من وجود أختام زمنية ومراجع لكل حركة.
-    5. **إدارة الصلاحيات الاستثنائية:** رصد الحسابات التي تنفذ حركات خارج أوقات العمل الرسمية.
-    6. **سياسة الاعتمادات المزدوجة:** فحص المعاملات الكبرى التي تتطلب موافقة ثنائية.
-    7. **قيود حسابات الوسطاء:** فحص الحركات المرتبطة بحسابات التوسيط المعلقة.
-    8. **مراجعة شروط التعاقد الآلية:** مطابقة المبالغ مع العقود المرفقة.
-    9. **التغييرات اليدوية على الحسابات الأساسية:** رصد أي تعديل مباشر على الأرصدة الافتتاحية.
-    10. **توثيق العمليات الجوهرية:** التحقق من وجود مستند قيد يدعم كل حركة مالية.
+    <b>أولاً: قواعد بيئة الرقابة والالتزام بالحوكمة (القواعد 1 - 10)</b><br>
+    1. فصل الصلاحيات النظامية (Segregation of Duties).<br>
+    2. مراقبة تجاوز سقف التفويض المالي المعتمد.<br>
+    3. التحقق المستمر من هوية مسجل القيود.<br>
+    4. اكتمال مسار التدقيق الزمني (Audit Trail).<br>
+    5. إدارة ورصد الصلاحيات الاستثنائية وحسابات الظل.<br>
+    6. سياسة الاعتمادات المالية الثنائية للعمليات الكبرى.<br>
+    7. فحص حسابات التوسيط والمعالجات المعلقة.<br>
+    8. مطابقة شروط التعاقد المالية الآلية.<br>
+    9. مراقبة التعديلات اليدوية على الأرصدة الافتتاحية.<br>
+    10. توثيق العمليات الجوهرية ومستندات الإثبات.<br><br>
 
-    ### 🔍 ثانياً: قواعد فحص العمليات والقيود المكررة (القواعد 11 - 20)
-    11. **القيود المكررة التامة:** رصد تطابق تام في المبلغ ورقم المرجع والتاريخ.
-    12. **القيود المكررة الجزئية:** رصد تكرار نفس المبلغ بمرجع مختلف بفارق زمن قصير.
-    13. **الصرف المزدوج للموردين:** كشف تكرار فواتير الموردين برقم فاتورة معدل طفيفاً.
-    14. **تكرار الحركات النقدية:** فحص سندات القبض والصرف المتطابقة.
-    15. **تداخل الشيكات المصروفة:** رصد أرقام شيكات مكررة أو مدفوعة مرتين.
-    16. **تكرار القيود العكسية:** التحقق من صحة إلغاء القيود وتجنب بقائها معلقة.
-    17. **مدفوعات الرواتب المكررة:** رصد تكرار التحويلات لنفس الموظف في نفس الدورة.
-    18. **تكرار مطالبات العهد:** كشف تسويات العهد المصروفة مرتين.
-    19. **فحص قيود التسوية المتشابهة:** رصد تكرار قيود التسويه الشهرية بشكل نمطي.
-    20. **تكرار قيود الإهلاك:** التحقق من عدم احتساب الإهلاك الآلي واليدوي معاً.
+    <b>ثانياً: قواعد فحص القيود المكررة والمزدوجة (القواعد 11 - 20)</b><br>
+    11. كشف القيود المكررة التامة (تطابق المبلغ ورقم المرجع والتاريخ).<br>
+    12. كشف القيود المكررة الجزئية بفارق زمني قصير.<br>
+    13. رصد الصرف المزدوج للموردين بفواتير معدلة طفيفاً.<br>
+    14. تكرار حركات سندات القبض والصرف النقدي.<br>
+    15. تدقيق تكرار الشيكات المصروفة أو المدفوعة مرتين.<br>
+    16. فحص القيود العكسية المتتالية ومعالجة القيود المعلقة.<br>
+    17. رصد مدفوعات الرواتب والأجور المتطابقة بالدورة.<br>
+    18. كشف تسويات العهد الشخصية أو النقدية المكررة.<br>
+    19. فحص نمطية تكرار قيود التسوية الشهرية.<br>
+    20. التحقق من عدم ازدواجية احتساب الإهلاك (آلي ويدوي).<br><br>
 
-    ### ⚡ ثالثاً: قواعد رصد التلاعب وتجزئة المبالغ (القواعد 21 - 30)
-    21. **شبهة تجزئة المبالغ (Split Transactions):** رصد العمليات أدنى سقف الاعتماد بقليل لتهرب من الموافقة.
-    22. **التحليل المعياري للقيم الشاذة (Z-Score):** كشف المبالغ الخارجة عن الانحراف الطبيعي بـ 3 مستويات.
-    23. **معدل تباين المصروفات:** رصد الارتفاع المفاجئ في بنود نفقات التشغيل.
-    24. **فحص الأرقام المغلقة الكبرى:** رصد المبالغ المستديرة (مضاعفات 1000) دون كسور.
-    25. **تجميع المشتريات المجزأة:** جمع الحركات لنفس المورد خلال يوم واحد لمقارنتها بالسقف.
-    26. **التحويلات لحظة الإغلاق المالي:** كشف الحركات المنفذة في الثواني الأخيرة للإغلاق الشهري/السنوي.
-    27. **القيود الوهمية (Ghost Entries):** فحص الحسابات التي تنتهي أرصدتها إلى الصفر فوراً.
-    28. **تلاعب الأرقام الأولى (Benford's Law):** فحص التوزيع الاحتمالي الرياضي لأول رقم في المبالغ.
-    29. **العمليات العشوائية غير المنتظمة:** رصد المبالغ المصممة يدوياً لتبدو عشوائية.
-    30. **التغيرات الحادة في الأرصدة النقدية:** رصد السحب أو الإيداع النقدي الضخم المفاجئ.
+    <b>ثالثاً: قواعد رصد الانحرافات وتجزئة المبالغ (القواعد 21 - 30)</b><br>
+    21. كشف شبهة تجزئة المبالغ (Split Transactions) للتهرب من الاعتماد.<br>
+    22. التحليل الإحصائي المعياري للقيم الشاذة (Z-Score Analysis).<br>
+    23. مراقبة معدل تباين وتضخم بنود مصروفات التشغيل.<br>
+    24. رصد الأرقام المغلقة الكبرى (مضاعفات الألف دون كسور).<br>
+    25. تجميع المشتريات المجزأة لنفس الجهة خلال اليوم.<br>
+    26. تدقيق التحويلات المنفذة بدقائق الإغلاق المالي الحرجة.<br>
+    27. فحص القيود الوهمية الصافية ذات الأرصدة الصفرية السريعة.<br>
+    28. مطابقة توزيع الأرقام الأولى مع قانون بنفورد (Benford's Law).<br>
+    29. رصد العمليات المصممة يدوياً لتبدو عشوائية ظاهرياً.<br>
+    30. تتبع التغيرات الحادة وغير المبررة بالسيولة النقدية.<br><br>
 
-    ### 🗃️ رابعاً: قواعد التدقيق النصي والتحقق المستندي (القواعد 31 - 40)
-    31. **الكلمات المفتاحية المريبة:** فحص البيان عن عبارات (تسوية، نثريات، مؤقت، عهدة، طارئ).
-    32. **البيانات الفارغة أو المبهمة:** رصد الحركات التي تفتقر لوصف تفصيلي واضح.
-    33. **الأخطاء الإملائية المتعمدة:** كشف التحاييل النصية في أسماء الحسابات أو الموردين.
-    34. **استخدام الحسابات العمياء (Suspense Accounts):** رصد ترحيل مبالغ لحسابات غير مخصصة لفترات طويلة.
-    35. **القيود المرحلة في أيام العطلات:** فحص العمليات المسجلة في أيام الجمع والأعياد الرسمية.
-    36. **تعديلات تواريخ الاستحقاق:** رصد التلاعب اليدوي بتواريخ الحركات لتغيير الفترة المحاسبية.
-    37. **الإلغاءات المتكررة للقيود:** رصد الموظفين الذين يلغون قيوداً أكثر من المعدل الطبيعي.
-    38. **فحص العهد النقدية الراكدة:** رصد العهد التي لم يتم تسويتها في الموعد النظامي.
-    39. **حركات الحسابات الخاملة:** كشف أي حركة على حسابات لم يتم التعامل معها لسنوات.
-    40. **مراجعة مطابقة أرصدة البنوك:** رصد الفروقات الكبيرة بين الدفاتر وكشوفات البنك.
+    <b>رابعاً: قواعد الفحص النصي والتحقق المستندي (القواعد 31 - 40)</b><br>
+    31. البحث عن الكلمات المفتاحية المريبة (تسوية، نثريات، مؤقت، عهدة).<br>
+    32. رصد الحركات التي تفتقر لوصف بيان تفصيلي واضح.<br>
+    33. كشف الأخطاء الإملائية واللغوية المتعمدة بأسماء المستفيدين.<br>
+    34. فحص استخدام حسابات التعليق والوسطاء لفترات طويلة.<br>
+    35. تدقيق القيود المرحلة خلال العطلات الرسمية وأيام الأسبوع المعطلة.<br>
+    36. رصد التلاعب بتواريخ الاستحقاق لتغيير الفترات المالية.<br>
+    37. تحليل معدل إلغاء القيود حسب المستخدم.<br>
+    38. مراجعة العهد النقدية الراكدة وغير المسواة بالنظام.<br>
+    39. كشف الحركات المنفذة على الحسابات الخاملة والنائمة.<br>
+    40. فحص الفروقات الكبيرة بين الدفاتر وكشوف التسوية البنكية.<br><br>
 
-    ### 📈 خامساً: قواعد الإفصاح المالي والتحليل الاستباقي (القواعد 41 - 50)
-    41. **تحليل السيولة النقدية الحرجة:** رصد مخاطر عجز رأس المال العامل التشغيلي.
-    42. **مؤشر تدوير المخزون الشاذ:** فحص الفجوات بين حركة المخزون والمبيعات.
-    43. **معدل تركز الموردين:** كشف الاعتماد المفرط على مورد واحد بنسبة مخاطر عالية.
-    44. **تقييم الذمم المدينة المتأخرة:** رصد تضخم الديون المشكوك في تحصيلها.
-    45. **فحص نسب الهامش الإجمالي:** رصد الانحرافات غير الطبيعية في تكلفة الإيرادات.
-    46. **مراجعة الإيرادات المؤجلة:** التحقق من توقيت الاعتراف بالإيراد المحاسبي.
-    47. **التدقيق على المصروفات الرأسمالية مقابل الإيرادية:** كشف رسملة المصروفات التشغيلية خطأً.
-    48. **فحص التغيرات في المخصصات والاحتياطيات:** مراقبة المخصصات غير المبررة لتقليل الأرباح.
-    49. **مؤشر استدامة التدفقات النقدية التشغيلية:** تقييم جودة الأرباح المحاسبية.
-    50. **التقرير الشامل للمخاطر المجمعة:** تجميع نتائج الـ 50 قاعدة في مؤشر خطاطي واحد معتمد للشركة.
-    """)
+    <b>خامساً: قواعد تحليل الإفصاح المالي والتدقيق الاستباقي (القواعد 41 - 50)</b><br>
+    41. تحليل مخاطر عجز السيولة النقدية التشغيلية الحرجة.<br>
+    42. تتبع الفجوات بين معدلات تدوير المخزون وقيمة المبيعات.<br>
+    43. كشف تركز المشتريات أو المبيعات لدى مورد/عميل وحيد.<br>
+    44. رصد تضخم رصيد الذمم المدينة وتأخر التحصيل.<br>
+    45. فحص الانحرافات الشاذة في نسب مجمل الربح وتكلفة الإيرادات.<br>
+    46. مراجعة توقيتات واشتراطات الاعتراف بالإيرادات المؤجلة.<br>
+    47. التدقيق على رسملة المصروفات التشغيلية بشكل غير نظامي.<br>
+    48. مراقبة حركة المخصصات والاحتياطيات غير المبررة مالياً.<br>
+    49. تقييم مؤشر استدامة التدفقات النقدية التشغيلية الحقيقية.<br>
+    50. احتساب المؤشر المجمع النهائي لمخاطر الشركة (Mizan Risk Score).
+    </div>
+    """, unsafe_allow_html=True)
 
 # ==========================================
 # 6. معالجة الملف المالي المرفوع
 # ==========================================
-uploaded_file = st.file_uploader("قم برفع كشف الحركات المالية للشركة (ملف Excel)", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("قم برفع كشف الحركات المالية للشركة (ملف Excel - القيود اليومية أو دفتر الأستاذ)", type=["xlsx", "xls"])
 
 if uploaded_file:
     raw_df = pd.read_excel(uploaded_file)
@@ -256,7 +266,7 @@ if uploaded_file:
     df['Ref_Clean'] = df[ref_col].astype(str).str.strip()
     valid_df = df[df['Amt_Clean'] > 0].copy()
 
-    # تشغيل محرك كشف المخاطر
+    # تشغيل محرك المخاطر والتدقيق
     dup_df = valid_df[valid_df.duplicated(subset=['Ref_Clean', 'Amt_Clean'], keep=False)]
     
     mean_v, std_v = valid_df['Amt_Clean'].mean(), valid_df['Amt_Clean'].std()
@@ -278,7 +288,7 @@ if uploaded_file:
     benford_p = 20 if mad > 0.015 else (10 if mad > 0.008 else 0)
     
     total_risk_score = min(dup_p + outlier_p + split_p + round_p + benford_p, 100)
-    risk_status = "عالي الخطورة | High Risk" if total_risk_score >= 70 else ("متوسط | Moderate" if total_risk_score >= 40 else "منخفض | Low Risk")
+    risk_status = "عالي المخاطر | High Risk" if total_risk_score >= 70 else ("متوسط المخاطر | Moderate" if total_risk_score >= 40 else "منخفض المخاطر | Low Risk")
     risk_color = "#ef4444" if total_risk_score >= 70 else ("#f59e0b" if total_risk_score >= 40 else "#10b981")
 
     st.markdown("---")
@@ -329,7 +339,7 @@ if uploaded_file:
     # الرسم البياني الأول: عمودي مضيء رقمي (بنفورد)
     # ------------------------------------------
     with c_col1:
-        st.markdown("#### 1. تحليل انحراف بنفورد (عمودي مضيء رقمي)")
+        st.markdown("#### 1. تحليل انحراف بنفورد (تصميم عالمي مضيء)")
         exp_digits = [np.log10(1 + 1/d) for d in range(1, 10)]
         
         fig_b = go.Figure()
@@ -337,11 +347,11 @@ if uploaded_file:
             x=[f"الرقم {d}" for d in range(1, 10)],
             y=counts.values * 100,
             name="التوزيع الفعلي للبيانات",
-            marker_color='#38bdf8',  # لون مضيء ساطع
-            marker_line=dict(width=2, color='#0284c7'),
+            marker_color='#38bdf8',
+            marker_line=dict(width=2, color='#7dd3fc'),
             text=[f"{v*100:.1f}%" for v in counts.values],
             textposition='auto',
-            textfont=dict(color='white', weight='bold')
+            textfont=dict(color='white', size=12, weight='bold')
         ))
         fig_b.add_trace(go.Scatter(
             x=[f"الرقم {d}" for d in range(1, 10)],
@@ -349,13 +359,13 @@ if uploaded_file:
             mode='lines+markers',
             name="المعيار الطبيعي (Benford)",
             line=dict(color='#f43f5e', width=3, dash='dash'),
-            marker=dict(size=8, color='#f43f5e')
+            marker=dict(size=9, color='#fb7185')
         ))
         fig_b.update_layout(
             height=380, margin=dict(l=20, r=20, t=30, b=20),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            yaxis=dict(title="النسبة المئوية (%)", showgrid=True, gridcolor='rgba(255,255,255,0.1)'),
-            xaxis=dict(title="الرقم الأول في المبلغ"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color='white')),
+            yaxis=dict(title="النسبة المئوية (%)", showgrid=True, gridcolor='rgba(255,255,255,0.1)', tickfont=dict(color='white')),
+            xaxis=dict(title="الرقم الأول في المبلغ", tickfont=dict(color='white')),
             paper_bgcolor='rgba(15,23,42,0.95)', plot_bgcolor='rgba(15,23,42,0.95)',
             font=dict(color='white')
         )
@@ -365,7 +375,7 @@ if uploaded_file:
     # الرسم البياني الثاني: عمودي مضيء رقمي (الملاحظات)
     # ------------------------------------------
     with c_col2:
-        st.markdown("#### 2. توزيع الملاحظات الرقابية (عمودي مضيء رقمي)")
+        st.markdown("#### 2. توزيع الملاحظات الرقابية (تصميم عالمي مضيء)")
         risk_data = {
             "قيود مكررة": len(dup_df), 
             "قيم شاذة": len(outlier_df), 
@@ -378,7 +388,8 @@ if uploaded_file:
             go.Bar(
                 x=list(risk_data.keys()),
                 y=list(risk_data.values()),
-                marker_color=['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899'],
+                marker_color=['#f87171', '#fbbf24', '#60a5fa', '#a78bfa', '#f472b6'],
+                marker_line=dict(width=2, color='white'),
                 text=[str(v) for v in risk_data.values()],
                 textposition='auto',
                 textfont=dict(color='white', size=14, weight='bold')
@@ -386,8 +397,8 @@ if uploaded_file:
         ])
         fig_p.update_layout(
             height=380, margin=dict(l=20, r=20, t=30, b=20),
-            yaxis=dict(title="عدد الحالات المرصودة", showgrid=True, gridcolor='rgba(255,255,255,0.1)'),
-            xaxis=dict(title="نوع المخاطر الرقابية"),
+            yaxis=dict(title="عدد الحالات المرصودة", showgrid=True, gridcolor='rgba(255,255,255,0.1)', tickfont=dict(color='white')),
+            xaxis=dict(title="نوع المخاطر الرقابية", tickfont=dict(color='white')),
             paper_bgcolor='rgba(15,23,42,0.95)', plot_bgcolor='rgba(15,23,42,0.95)',
             font=dict(color='white')
         )
@@ -411,7 +422,7 @@ if uploaded_file:
     st.markdown("---")
     
     # ==========================================
-    # 7. استخراج التقارير (Excel & PDF الشامل)
+    # 7. استخراج التقارير الرسمية (Excel & PDF المعتمد)
     # ==========================================
     col_dl1, col_dl2 = st.columns(2)
     
@@ -432,39 +443,72 @@ if uploaded_file:
             use_container_width=True
         )
 
-    # محاكاة تقرير PDF احترافي معتمد يحمل الشعار والتاريخ والتفاصيل
+    # توليد ملف PDF احترافي حقيقي باستخدام ReportLab
     current_date_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    pdf_content = f"""
-    ============================================================
-                   منصة ميزان للرقابة المالية وإدارة المخاطر
-               MIZAN PLATFORM - FINANCIAL AUDIT REPORT
-    ============================================================
-    اسم الشركة الفاحصة / المستفيدة: {st.session_state['current_company']}
-    اسم المسؤول المعتمد: {st.session_state['current_user']}
-    تاريخ التقرير الرسمي: {current_date_str}
-    صانع ومنشئ المنصة: Mohammad Almtashashin
-    ------------------------------------------------------------
-    1. ملخص نتائج مؤشر المخاطر العام:
-       - نسبة المخاطر الكلية: {total_risk_score}%
-       - حالة التقييم: {risk_status}
-       
-    2. إحصائيات القواعد الرقابية المرصودة:
-       - عدد القيود المكررة المريبة: {len(dup_df)}
-       - عدد القيم الشاذة (Z-Score): {len(outlier_df)}
-       - عدد حالات شبهة تجزئة المبالغ: {len(split_df)}
-       - عدد الأرقام المغلقة: {len(round_df)}
-       - عدد الكلمات المفتاحية المريبة: {len(keyword_df)}
-       - مؤشر انحراف قانون بنفورد (MAD): {mad:.4f}
-    ------------------------------------------------------------
-    معتمد رسمياً من قبل وحدة التدقيق الآلي - منصة ميزان ⚖️
-    ============================================================
-    """
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    elements = []
     
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'ArabicTitle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=18,
+        textColor=colors.HexColor('#0f172a'),
+        alignment=1, # Center
+        spaceAfter=15
+    )
+    normal_style = ParagraphStyle(
+        'ArabicNormal',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        textColor=colors.HexColor('#334155'),
+        spaceAfter=8
+    )
+    
+    elements.append(Paragraph("<b>Mizan Financial Control Platform</b>", title_style))
+    elements.append(Paragraph(f"<b>الجهة الفاحصة:</b> {st.session_state['current_company']}", normal_style))
+    elements.append(Paragraph(f"<b>المسؤول المعتمد:</b> {st.session_state['current_user']}", normal_style))
+    elements.append(Paragraph(f"<b>تاريخ التقرير الرسمي:</b> {current_date_str}", normal_style))
+    elements.append(Paragraph(f"<b>صانع النظام:</b> Mohammad Almtashashin", normal_style))
+    elements.append(Spacer(1, 15))
+    
+    # جدول ملخص النتائج
+    summary_data = [
+        ['مؤشر المخاطر الكلي', f"{total_risk_score}% ({risk_status})"],
+        ['القيود المكررة المريبة', str(len(dup_df))],
+        ['القيم الشاذة (Z-Score)', str(len(outlier_df))],
+        ['شبهة تجزئة المبالغ', str(len(split_df))],
+        ['الأرقام المغلقة', str(len(round_df))],
+        ['الكلمات المفتاحية المريبة', str(len(keyword_df))],
+        ['انحراف قانون بنفورد (MAD)', f"{mad:.4f}"]
+    ]
+    
+    t = Table(summary_data, colWidths=[200, 300])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#cbd5e1')),
+        ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f8fafc')),
+    ]))
+    
+    elements.append(t)
+    elements.append(Spacer(1, 20))
+    elements.append(Paragraph("<b>معتمد رسمياً من قبل محرك التدقيق الآلي - منصة ميزان ⚖️</b>", normal_style))
+    
+    doc.build(elements)
+    pdf_data = pdf_buffer.getvalue()
+
     with col_dl2:
         st.download_button(
             label="📄 تصدير التقرير الختامي المعتمد (PDF Report)",
-            data=pdf_content.encode('utf-8'),
-            file_name=f"Mizan_Final_Audit_Report_{datetime.now().strftime('%Y-%m-%d')}.txt",
-            mime="text/plain",
+            data=pdf_data,
+            file_name=f"Mizan_Final_Audit_Report_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+            mime="application/pdf",
             use_container_width=True
         )

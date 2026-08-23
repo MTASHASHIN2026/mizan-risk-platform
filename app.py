@@ -12,7 +12,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
 # ==========================================
-# 1. إعدادات الصفحة والتصميم الأساسي
+# 1. إعدادات الصفحة والتصميم المالي الفاتح
 # ==========================================
 st.set_page_config(
     page_title="منصة ميزان | Mizan Risk & Financial Control",
@@ -25,34 +25,34 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Inter:wght@400;600;700&display=swap');
     html, body, [class*="css"] { font-family: 'Cairo', 'Inter', sans-serif; direction: rtl; }
-    .stApp { background-color: #0b0f19; color: #f8fafc; }
+    .stApp { background-color: #f8fafc; color: #0f172a; }
     
     .bilingual-header {
         display: flex; justify-content: space-between; align-items: center;
-        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
         color: white; padding: 1.5rem 2rem; border-radius: 12px; margin-bottom: 1.5rem;
-        border: 1px solid rgba(56, 189, 248, 0.2);
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        border-bottom: 4px solid #c5a059;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
     }
     .metric-card {
-        background: linear-gradient(145deg, #111827, #0f172a);
-        border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px;
-        padding: 1.2rem; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        background: #ffffff;
+        border: 1px solid #e2e8f0; border-top: 4px solid #c5a059; border-radius: 12px;
+        padding: 1.2rem; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);
         transition: transform 0.2s, border-color 0.2s;
     }
-    .metric-card:hover { transform: translateY(-3px); border-color: rgba(56, 189, 248, 0.6); }
-    .metric-value { font-size: 2.2rem; font-weight: 700; color: #38bdf8; margin: 5px 0; text-shadow: 0 0 15px rgba(56,189,248,0.4); }
-    .metric-label-ar { font-size: 1rem; color: #f1f5f9; font-weight: 700; }
-    .metric-label-en { font-size: 0.8rem; color: #94a3b8; direction: ltr; }
+    .metric-card:hover { transform: translateY(-3px); border-color: #b8860b; }
+    .metric-value { font-size: 2.2rem; font-weight: 700; color: #0f172a; margin: 5px 0; }
+    .metric-label-ar { font-size: 1rem; color: #334155; font-weight: 700; }
+    .metric-label-en { font-size: 0.8rem; color: #64748b; direction: ltr; }
     
     .rules-container {
-        text-align: right; background-color: #111827; padding: 15px; 
-        border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.2); line-height: 1.8; color: #cbd5e1;
+        text-align: right; background-color: #ffffff; padding: 15px; 
+        border-radius: 8px; border: 1px solid #e2e8f0; line-height: 1.8; color: #334155;
     }
     .watermark {
         position: fixed; bottom: 10px; right: 15px; font-size: 0.75rem; 
-        color: #94a3b8; background: rgba(15,23,42,0.9); padding: 4px 10px; 
-        border-radius: 6px; z-index: 999; border: 1px solid rgba(56,189,248,0.2);
+        color: #64748b; background: rgba(255,255,255,0.95); padding: 4px 10px; 
+        border-radius: 6px; z-index: 999; border: 1px solid #cbd5e1;
     }
 </style>
 <div class="watermark">Designed & Developed by Mohammad Almtashashin ⚖️ Mizan Platform</div>
@@ -78,9 +78,9 @@ if not st.session_state['authenticated']:
     c1, col_login, c2 = st.columns([1, 1.6, 1])
     with col_login:
         st.markdown("""
-        <div style="background: #111827; padding: 2rem; border-radius: 14px; border-top: 5px solid #38bdf8; border: 1px solid rgba(56,189,248,0.2); box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center;">
-            <h2 style="margin-bottom: 5px; color: #f8fafc;">⚖️ منصة ميزان | Mizan</h2>
-            <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 20px;">نظام الرقابة المالية وإدارة المخاطر المحاسبية</p>
+        <div style="background: white; padding: 2rem; border-radius: 14px; border-top: 5px solid #c5a059; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px rgba(0,0,0,0.04); text-align: center;">
+            <h2 style="margin-bottom: 5px; color: #0f172a;">⚖️ منصة ميزان | Mizan</h2>
+            <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 20px;">نظام الرقابة المالية وإدارة المخاطر المحاسبية</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -148,12 +148,12 @@ def auto_detect_column(columns, keywords):
 st.markdown(f"""
 <div class="bilingual-header">
     <div>
-        <div style="font-size: 1.6rem; font-weight: 700; color: #f8fafc;">⚖️ منصة ميزان للرقابة المالية وإدارة المخاطر</div>
-        <div style="color: #38bdf8; margin-top: 4px; font-size: 0.95rem;">المنصة الذكية للتدقيق واكتشاف المخاطر المحاسبية | الجهة: {st.session_state['current_company']}</div>
+        <div style="font-size: 1.6rem; font-weight: 700; color: #ffffff;">⚖️ منصة ميزان للرقابة المالية وإدارة المخاطر</div>
+        <div style="color: #fcd34d; margin-top: 4px; font-size: 0.95rem;">المنصة الذكية للتدقيق واكتشاف المخاطر المحاسبية | الجهة: {st.session_state['current_company']}</div>
     </div>
-    <div style="font-size: 1rem; font-weight: 600; color: #94a3b8; direction: ltr; text-align: left;">
+    <div style="font-size: 1rem; font-weight: 600; color: #cbd5e1; direction: ltr; text-align: left;">
         <div><strong>MIZAN PLATFORM</strong></div>
-        <div style="font-size: 0.8rem; color: #cbd5e1;">By Mohammad Almtashashin</div>
+        <div style="font-size: 0.8rem; color: #fcd34d;">By Mohammad Almtashashin</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -171,7 +171,7 @@ z_threshold = st.sidebar.slider("حد القيم الشاذة المعياري (
 split_limit = st.sidebar.number_input("سقف الصلاحية المعتمد", value=5000.0, step=500.0)
 
 # ==========================================
-# 5. معايير وقواعد التدقيق الـ 50 (مخفية ومنسقة)
+# 5. معايير وقواعد التدقيق الـ 50 (مخفية تماماً)
 # ==========================================
 with st.expander("📚 عرض دليل الـ 50 قاعدة رقابة مالية ومعيار محاسبي معتمد (مخفي افتراضياً)", expanded=False):
     st.markdown("""
@@ -234,7 +234,7 @@ if uploaded_file:
     
     total_risk_score = min(dup_p + outlier_p + split_p + round_p + benford_p, 100)
     risk_status = "عالي المخاطر | High Risk" if total_risk_score >= 70 else ("متوسط المخاطر | Moderate" if total_risk_score >= 40 else "منخفض المخاطر | Low Risk")
-    risk_color = "#ef4444" if total_risk_score >= 70 else ("#f59e0b" if total_risk_score >= 40 else "#10b981")
+    risk_color = "#dc2626" if total_risk_score >= 70 else ("#d97706" if total_risk_score >= 40 else "#059669")
 
     st.markdown("---")
     st.markdown("### 📊 لوحة المؤشرات التنفيذية المضيئة | Executive Risk Dashboard")
@@ -281,10 +281,10 @@ if uploaded_file:
     c_col1, c_col2 = st.columns(2)
     
     # ------------------------------------------
-    # التصميم الاحترافي المضيء للرسوم البيانية (Neon Financial Theme)
+    # الرسوم البيانية بخلفية فاتحة وتصميم ذهبي/أزرق مالي فاخر (Light Financial Charts)
     # ------------------------------------------
     with c_col1:
-        st.markdown("#### 1. تحليل انحراف بنفورد (Neon Financial Chart)")
+        st.markdown("#### 1. تحليل انحراف بنفورد (Golden Professional Financial Chart)")
         exp_digits = [np.log10(1 + 1/d) for d in range(1, 10)]
         
         fig_b = go.Figure()
@@ -292,32 +292,32 @@ if uploaded_file:
             x=[f"الرقم {d}" for d in range(1, 10)],
             y=counts.values * 100,
             name="التوزيع الفعلي",
-            marker_color='#00f3ff',
-            marker_line=dict(width=1.5, color='#38bdf8'),
+            marker_color='#c5a059',
+            marker_line=dict(width=1, color='#8b6508'),
             text=[f"{v*100:.1f}%" for v in counts.values],
             textposition='auto',
-            textfont=dict(color='#0f172a', size=11, weight='bold')
+            textfont=dict(color='#ffffff', size=11, weight='bold')
         ))
         fig_b.add_trace(go.Scatter(
             x=[f"الرقم {d}" for d in range(1, 10)],
             y=[e * 100 for e in exp_digits],
             mode='lines+markers',
             name="المعيار الطبيعي",
-            line=dict(color='#ff007f', width=3, dash='dash'),
-            marker=dict(size=8, color='#ff007f')
+            line=dict(color='#0f172a', width=3, dash='dash'),
+            marker=dict(size=8, color='#c5a059')
         ))
         fig_b.update_layout(
             height=380, margin=dict(l=20, r=20, t=30, b=20),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color='#cbd5e1')),
-            yaxis=dict(title="النسبة (%)", showgrid=True, gridcolor='rgba(255,255,255,0.08)', tickfont=dict(color='#cbd5e1')),
-            xaxis=dict(title="الرقم الأول في المبلغ", tickfont=dict(color='#cbd5e1')),
-            paper_bgcolor='#0b0f19', plot_bgcolor='#111827',
-            font=dict(color='#f8fafc')
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color='#0f172a')),
+            yaxis=dict(title="النسبة (%)", showgrid=True, gridcolor='rgba(0,0,0,0.08)', tickfont=dict(color='#0f172a')),
+            xaxis=dict(title="الرقم الأول في المبلغ", tickfont=dict(color='#0f172a')),
+            paper_bgcolor='#ffffff', plot_bgcolor='#ffffff',
+            font=dict(color='#0f172a')
         )
         st.plotly_chart(fig_b, use_container_width=True)
 
     with c_col2:
-        st.markdown("#### 2. توزيع الملاحظات الرقابية (Neon Financial Chart)")
+        st.markdown("#### 2. توزيع الملاحظات الرقابية (Golden Professional Financial Chart)")
         risk_data = {
             "قيود مكررة": len(dup_df), 
             "قيم شاذة": len(outlier_df), 
@@ -330,19 +330,19 @@ if uploaded_file:
             go.Bar(
                 x=list(risk_data.keys()),
                 y=list(risk_data.values()),
-                marker_color=['#ff4d4d', '#ffb84d', '#00f3ff', '#b388ff', '#ff80bf'],
-                marker_line=dict(width=1.5, color='#ffffff'),
+                marker_color=['#0f172a', '#c5a059', '#334155', '#d4af37', '#475569'],
+                marker_line=dict(width=1, color='#ffffff'),
                 text=[str(v) for v in risk_data.values()],
                 textposition='auto',
-                textfont=dict(color='#0f172a', size=12, weight='bold')
+                textfont=dict(color='#ffffff', size=12, weight='bold')
             )
         ])
         fig_p.update_layout(
             height=380, margin=dict(l=20, r=20, t=30, b=20),
-            yaxis=dict(title="عدد الحالات", showgrid=True, gridcolor='rgba(255,255,255,0.08)', tickfont=dict(color='#cbd5e1')),
-            xaxis=dict(title="نوع المخاطر الرقابية", tickfont=dict(color='#cbd5e1')),
-            paper_bgcolor='#0b0f19', plot_bgcolor='#111827',
-            font=dict(color='#f8fafc')
+            yaxis=dict(title="عدد الحالات", showgrid=True, gridcolor='rgba(0,0,0,0.08)', tickfont=dict(color='#0f172a')),
+            xaxis=dict(title="نوع المخاطر الرقابية", tickfont=dict(color='#0f172a')),
+            paper_bgcolor='#ffffff', plot_bgcolor='#ffffff',
+            font=dict(color='#0f172a')
         )
         st.plotly_chart(fig_p, use_container_width=True)
 
@@ -384,7 +384,7 @@ if uploaded_file:
             use_container_width=True
         )
 
-    # توليد ملف PDF بتنسيق دولي نظيف (English International Standard Report) لمنع تشوه الحروف
+    # توليد ملف PDF بتنسيق دولي نظيف
     current_date_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     pdf_buffer = io.BytesIO()
     doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)

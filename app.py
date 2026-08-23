@@ -1,244 +1,517 @@
-import os, io, csv, re, sqlite3, hashlib, secrets, math
+import streamlit as st
+import pandas as pd
+import numpy as np
+import hashlib
+import io
+import math
+import re
 from datetime import datetime
-from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, abort
-from werkzeug.utils import secure_filename
-try: import openpyxl
-except ImportError: openpyxl = None
 
-BASE=os.path.dirname(os.path.abspath(__file__)); DB=os.getenv('DB_FILE',os.path.join(BASE,'mizanrisk.db')); UP=os.path.join(BASE,'uploads'); os.makedirs(UP,exist_ok=True)
-app=Flask(__name__); app.secret_key=os.getenv('SECRET_KEY','CHANGE_ME_IN_PRODUCTION'); app.config.update(MAX_CONTENT_LENGTH=15*1024*1024,SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SAMESITE='Lax')
+st.set_page_config(
+    page_title="Mizan Financial Risk Intelligence",
+    page_icon="⚖️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-RULES=[
-('DUPLICATE_INVOICE','تكرار رقم الفاتورة',75,'أكثر من عملية تحمل رقم فاتورة واحد.'),('DUPLICATE_TRANSACTION','تكرار العملية بالكامل',80,'تاريخ ومبلغ ووصف/فاتورة متطابقة.'),('SAME_INVOICE_DIFFERENT_AMOUNT','الفاتورة نفسها بمبالغ مختلفة',85,'رقم فاتورة واحد مرتبط بأكثر من مبلغ.'),('SAME_DATE_AMOUNT','تكرار المبلغ والتاريخ',55,'تكرار نفس المبلغ في نفس التاريخ.'),('MISSING_INVOICE','رقم فاتورة مفقود',35,'عملية بدون رقم فاتورة أو مستند.'),('MISSING_DATE','تاريخ مفقود',50,'عملية بدون تاريخ.'),('INVALID_DATE','تاريخ غير صالح',55,'التاريخ غير قابل للمعالجة.'),('FUTURE_DATE','تاريخ مستقبلي',65,'تاريخ العملية بعد تاريخ النظام.'),('WEEKEND_ENTRY','قيد في عطلة نهاية الأسبوع',25,'مؤشر توقيت يستحق التحقق.'),('ROUND_AMOUNT','مبلغ دائري',30,'مبلغ دائري مرتفع.'),('UNUSUAL_AMOUNT_HIGH','مبلغ مرتفع غير معتاد',60,'المبلغ أعلى من نمط البيانات.'),('UNUSUAL_AMOUNT_LOW','مبلغ منخفض غير معتاد',30,'المبلغ منخفض بصورة غير معتادة.'),('ZERO_AMOUNT','عملية بصفر',45,'عملية بمبلغ صفر.'),('NEGATIVE_AMOUNT','مبلغ سالب',45,'مبلغ سالب يحتاج تفسيراً.'),('DEBIT_CREDIT_MISMATCH','فرق بين المدين والدائن',90,'فرق ظاهر بين المدين والدائن.'),('BOTH_DEBIT_CREDIT','مدين ودائن في السجل نفسه',50,'السجل يحتوي مديناً ودائناً معاً.'),('NO_DEBIT_CREDIT','لا مدين ولا دائن',50,'السجل لا يحتوي مديناً أو دائناً.'),('EMPTY_DESCRIPTION','وصف ناقص',25,'الوصف غير موجود.'),('SHORT_DESCRIPTION','وصف قصير جداً',20,'وصف العملية قصير بصورة تقلل قابلية المراجعة.'),('SUSPICIOUS_KEYWORDS','كلمات تستحق المراجعة',40,'كلمات في الوصف تستحق فحصاً إضافياً.'),('MANUAL_JOURNAL','قيد يدوي محتمل',35,'الوصف يشير إلى قيد أو تسوية يدوية.'),('MISSING_USER','مستخدم منشئ مفقود',35,'اسم/معرف المستخدم غير موجود.'),('AFTER_HOURS','عملية خارج ساعات العمل',30,'الوقت خارج ساعات العمل.'),('MONTH_END','قيد قرب نهاية الشهر',25,'قيد في آخر أيام الشهر.'),('YEAR_END','قيد قرب نهاية السنة',40,'قيد في آخر أيام السنة.'),('INVOICE_GAP','فجوة في تسلسل الفواتير',35,'فجوة في التسلسل الرقمي للفواتير.'),('INVOICE_OUT_OF_ORDER','فاتورة خارج التسلسل',35,'التسلسل لا يتوافق مع الترتيب الزمني.'),('MISSING_SUPPLIER','مورد مفقود',40,'عملية مشتريات بدون مورد.'),('DUPLICATE_SUPPLIER','تكرار مرتفع لمورد',30,'عدد مرتفع من العمليات لنفس المورد.'),('MISSING_CUSTOMER','عميل مفقود',35,'عملية مبيعات بدون عميل.'),('MISSING_TAX','ضريبة مفقودة',35,'غياب الضريبة عند توفر صافي/إجمالي.'),('TAX_MISMATCH','فرق حساب الضريبة',70,'الضريبة لا تتطابق مع الصافي والإجمالي.'),('ABNORMAL_TAX_RATE','نسبة ضريبة غير معتادة',45,'نسبة الضريبة خارج النطاق المتوقع.'),('TOTAL_TAX_LOGIC','منطق الإجمالي والضريبة',60,'الإجمالي لا يطابق صافي العملية والضريبة.'),('TAX_GT_TOTAL','الضريبة أكبر من الإجمالي',80,'قيمة الضريبة أكبر من الإجمالي.'),('MISSING_PO','أمر شراء مفقود',45,'مشتريات بدون أمر شراء.'),('MISSING_APPROVAL','اعتماد مفقود',55,'العملية بلا حالة اعتماد.'),('MISSING_COST_CENTER','مركز تكلفة مفقود',30,'غياب مركز التكلفة.'),('MISSING_ACCOUNT','حساب محاسبي مفقود',55,'غياب الحساب المحاسبي.'),('INVALID_ACCOUNT_FORMAT','صيغة حساب غير معتادة',35,'الحساب لا يتوافق مع نمط حسابات البيانات.'),('LARGE_ROUND_AMOUNT','مبلغ دائري كبير',55,'مبلغ دائري كبير جداً.'),('BENFORD_SCREENING','انحراف إحصائي عن Benford',50,'انحراف إحصائي يستحق الفحص ولا يثبت مخالفة.'),('AMOUNT_ZSCORE','قيمة شاذة إحصائياً',65,'المبلغ بعيد إحصائياً عن متوسط البيانات.'),('SUPPLIER_CONCENTRATION','تركيز مرتفع لمورد',45,'نسبة كبيرة من العمليات مرتبطة بمورد واحد.'),('SPLIT_TRANSACTIONS','عمليات متقاربة قد تشير إلى تجزئة',70,'عمليات متكررة تحت حد رقابي في وقت قصير.'),('SAME_SUPPLIER_DAY','تكرار عمليات المورد في اليوم',40,'عدد مرتفع من العمليات لنفس المورد في اليوم.'),('SIGN_MISMATCH','عدم اتساق إشارة المبلغ',55,'إشارة المبلغ لا تتوافق مع الحركة.'),('MISSING_REFERENCE','مرجع مستندي مفقود',30,'لا يوجد مرجع مستندي.'),('POSTING_PERIOD_MISMATCH','عدم تطابق فترة الترحيل',60,'تاريخ الترحيل يختلف عن فترة المستند.'),('TAX_ROUNDING_DIFFERENCE','فرق تقريب الضريبة',25,'فرق صغير محتمل بسبب التقريب.'),('DUPLICATE_REFERENCE','تكرار المرجع المستندي',65,'مرجع مستندي مكرر بين عمليات متعددة.')]
+# -----------------------------
+# Styling / RTL
+# -----------------------------
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
+html, body, [class*="css"] { font-family: 'Cairo', sans-serif; }
+.stApp { direction: rtl; background: #f5f7fb; }
+.block-container { max-width: 1400px; padding-top: 1.2rem; }
+.hero {
+    background: linear-gradient(135deg,#07152b 0%,#102b4d 55%,#173e68 100%);
+    border-radius: 28px; padding: 42px; color: white; overflow: hidden;
+    position: relative; box-shadow: 0 25px 70px rgba(7,21,43,.18);
+}
+.hero h1 { font-size: 42px; line-height: 1.25; margin: 0 0 12px; font-weight: 900; }
+.hero p { color: #dbeafe; font-size: 16px; max-width: 850px; }
+.hero .accent { color:#39c4ef; }
+.pill { display:inline-block; background:rgba(57,196,239,.12); color:#8be4ff;
+        border:1px solid rgba(57,196,239,.28); padding:6px 12px; border-radius:30px;
+        margin:4px; font-size:12px; }
+.metric-card {
+    background:white; border:1px solid #e4e9f1; border-radius:18px;
+    padding:18px; box-shadow:0 8px 25px rgba(15,23,42,.05);
+}
+.metric-title { color:#667085; font-size:12px; }
+.metric-value { font-size:30px; font-weight:900; color:#12213b; }
+.risk-high { color:#c62828 !important; }
+.risk-med { color:#b26a00 !important; }
+.risk-low { color:#16803c !important; }
+.finding-high { background:#fff0f0; border-right:5px solid #d62828; padding:12px; border-radius:10px; margin:7px 0; }
+.finding-med { background:#fff8e8; border-right:5px solid #e59a00; padding:12px; border-radius:10px; margin:7px 0; }
+.finding-low { background:#effaf3; border-right:5px solid #24a148; padding:12px; border-radius:10px; margin:7px 0; }
+.legal { background:#fff; border:1px solid #dce5ef; border-right:5px solid #3b82f6;
+         padding:16px; border-radius:12px; color:#596579; font-size:12px; }
+.small-muted { color:#667085; font-size:12px; }
+div[data-testid="stSidebar"] { direction:rtl; }
+button, input, textarea, select { font-family:'Cairo',sans-serif !important; }
+@keyframes pulse { 0%,100% { transform:scale(1); opacity:.85;} 50% {transform:scale(1.06); opacity:1;} }
+.pulse { animation:pulse 4s ease-in-out infinite; }
+</style>
+""", unsafe_allow_html=True)
 
-def now(): return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-def hp(p): return hashlib.sha256(p.encode()).hexdigest()
-def db():
- from flask import g
- if 'db' not in g: g.db=sqlite3.connect(DB); g.db.row_factory=sqlite3.Row
- return g.db
-@app.teardown_appcontext
-def close(e=None):
- from flask import g
- x=g.pop('db',None)
- if x:x.close()
-def init():
- d=db(); d.executescript('''CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,created_at TEXT);CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,email TEXT UNIQUE,password TEXT,role TEXT,company_id INTEGER);CREATE TABLE IF NOT EXISTS rules(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE,name TEXT,score INTEGER,description TEXT,enabled INTEGER DEFAULT 1);CREATE TABLE IF NOT EXISTS audit_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,company_id INTEGER,filename TEXT,total INTEGER,high INTEGER,medium INTEGER,low INTEGER,risk_score INTEGER,benford_score REAL,duplicate_candidates INTEGER,outlier_count INTEGER,created_at TEXT);CREATE TABLE IF NOT EXISTS findings(id INTEGER PRIMARY KEY AUTOINCREMENT,run_id INTEGER,row_no INTEGER,txn_date TEXT,description TEXT,amount REAL,invoice TEXT,issues TEXT,risk INTEGER,category TEXT,status TEXT DEFAULT 'Pending',review_note TEXT DEFAULT '');CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,action TEXT,entity TEXT,entity_id INTEGER,created_at TEXT);CREATE TABLE IF NOT EXISTS subscriptions(id INTEGER PRIMARY KEY AUTOINCREMENT,company_id INTEGER UNIQUE,plan TEXT,status TEXT,expires_at TEXT);''')
- for r in RULES: d.execute('INSERT OR IGNORE INTO rules(code,name,score,description,enabled) VALUES(?,?,?,?,1)',r)
- if d.execute('SELECT COUNT(*) c FROM users').fetchone()['c']==0:
-  d.execute('INSERT INTO companies(name,created_at) VALUES(?,?)',('Demo Company',now())); cid=d.execute('SELECT last_insert_rowid()').fetchone()[0]
-  d.execute('INSERT INTO users(name,email,password,role,company_id) VALUES(?,?,?,?,?)',('Mizan Supervisor','admin@mizanrisk.local',hp('Admin123!'),'super_admin',None)); d.execute('INSERT INTO users(name,email,password,role,company_id) VALUES(?,?,?,?,?)',('Demo Company Admin','demo@mizanrisk.local',hp('Demo123!'),'company_admin',cid)); d.execute('INSERT INTO subscriptions(company_id,plan,status,expires_at) VALUES(?,?,?,?)',(cid,'Trial','active','2026-12-31'))
- d.commit()
-with app.app_context(): init()
-def user():
- uid=session.get('uid'); return db().execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone() if uid else None
-def log(a,e='',i=None):
- u=user(); db().execute('INSERT INTO audit_log(user_id,action,entity,entity_id,created_at) VALUES(?,?,?,?,?)',(u['id'] if u else None,a,e,i,now())); db().commit()
-def req(fn):
- @wraps(fn)
- def w(*a,**k):
-  if not user(): return redirect(url_for('login'))
-  return fn(*a,**k)
- return w
-def admin(fn):
- @wraps(fn)
- def w(*a,**k):
-  if not user() or user()['role']!='super_admin': abort(403)
-  return fn(*a,**k)
- return w
-def access(cid): u=user(); return bool(u and (u['role']=='super_admin' or u['company_id']==cid))
-def clean(v): return '' if v is None else str(v).strip()
-def nk(v): return re.sub(r'[\s_\-]+','',str(v).lower())
-def gv(r,names):
- m={nk(k):v for k,v in r.items()}
- for n in names:
-  if nk(n) in m:return m[nk(n)]
- return ''
-def num(v):
- try:return float(str(v).replace(',','').strip())
- except:return 0.0
-def read_rows(path):
- ext=os.path.splitext(path)[1].lower()
- if ext=='.csv':
-  with open(path,encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
- if ext=='.xlsx' and openpyxl:
-  wb=openpyxl.load_workbook(path,data_only=True,read_only=True); it=wb.active.iter_rows(values_only=True); h=[clean(x) for x in next(it)]; return [dict(zip(h,r)) for r in it]
- raise ValueError('يرجى رفع CSV أو XLSX.')
-def dtparse(v):
- v=clean(v)
- for f in ('%Y-%m-%d','%d/%m/%Y','%m/%d/%Y','%Y/%m/%d','%d-%m-%Y'):
-  try:return datetime.strptime(v[:10],f)
-  except:pass
- return None
-def benford(rs):
- c={str(i):0 for i in range(1,10)}; total=0
- for r in rs:
-  s=re.sub(r'\D','',str(num(gv(r,['amount','المبلغ','value','debit','مدين']))) )
-  if s and s[0]!='0':c[s[0]]+=1; total+=1
- if total<20:return 0.0
- exp={str(i):math.log10(1+1/i) for i in range(1,10)}; dev=sum(abs(c[k]/total-exp[k]) for k in c)/2
- return round(min(100,dev*300),2)
-def analyze(rs,en):
- from collections import defaultdict
- vals=[num(gv(r,['amount','المبلغ','value','total','الإجمالي','debit','مدين'])) for r in rs]; pos=[x for x in vals if x>0]; avg=sum(pos)/(len(pos) or 1); sd=math.sqrt(sum((x-avg)**2 for x in pos)/(len(pos) or 1)) if pos else 0
- rec=[]; invmap=defaultdict(list); exact=defaultdict(list); damt=defaultdict(list); sup=defaultdict(list); supday=defaultdict(list); refs=defaultdict(list); invnums=[]
- def flag(r,code,label,score,cat):
-  if en.get(code): r['issues'].append(label); r['categories'].append(cat); r['risk']=max(r['risk'],score)
- for i,row in enumerate(rs,1):
-  date=clean(gv(row,['date','التاريخ','transaction date'])); dt=dtparse(date); desc=clean(gv(row,['description','desc','الوصف','البيان','details'])); inv=clean(gv(row,['invoice','invoice no','invoice_no','رقم الفاتورة','رقم المستند'])); amt=num(gv(row,['amount','المبلغ','value','total','الإجمالي','debit','مدين'])); debit=num(gv(row,['debit','مدين'])); credit=num(gv(row,['credit','دائن'])); net=num(gv(row,['net','subtotal','صافي','الصافي'])); tax=num(gv(row,['tax','vat','الضريبة','ضريبة'])); total=num(gv(row,['total','amount','المبلغ','الإجمالي'])); supplier=clean(gv(row,['supplier','vendor','المورد','اسم المورد'])); customer=clean(gv(row,['customer','client','العميل','اسم العميل'])); created=clean(gv(row,['user','created by','created_by','المستخدم','منشئ'])); po=clean(gv(row,['po','purchase order','po number','أمر شراء','رقم أمر الشراء'])); approval=clean(gv(row,['approval','approved','approval status','الاعتماد','حالة الاعتماد'])); cc=clean(gv(row,['cost center','cost_center','مركز التكلفة'])); account=clean(gv(row,['account','account code','الحساب','رقم الحساب'])); ref=clean(gv(row,['reference','ref','document','مرجع','رقم المرجع'])); posting=clean(gv(row,['posting date','posting_date','تاريخ الترحيل']))
-  r={'row_no':i,'date':date,'dt':dt,'description':desc,'amount':amt,'debit':debit,'credit':credit,'net':net,'tax':tax,'total':total,'invoice':inv,'supplier':supplier,'customer':customer,'created':created,'po':po,'approval':approval,'cc':cc,'account':account,'ref':ref,'posting':posting,'issues':[],'categories':[],'risk':0}; rec.append(r)
-  if inv: invmap[inv].append(i-1); exact[(inv,round(amt,2),date)].append(i-1); m=re.search(r'\d+',inv); invnums.append((int(m.group()),i-1)) if m else None
-  if date and amt: damt[(date,round(amt,2))].append(i-1)
-  if supplier: sup[supplier].append(i-1); supday[(supplier,date)].append(i-1)
-  if ref: refs[ref].append(i-1)
-  if not inv: flag(r,'MISSING_INVOICE','رقم فاتورة مفقود',35,'Documentation')
-  if not date: flag(r,'MISSING_DATE','تاريخ مفقود',50,'Data Quality')
-  elif not dt: flag(r,'INVALID_DATE','تاريخ غير صالح',55,'Data Quality')
-  else:
-   if dt>datetime.utcnow(): flag(r,'FUTURE_DATE','تاريخ مستقبلي',65,'Timing')
-   if dt.weekday()>=5: flag(r,'WEEKEND_ENTRY','قيد في عطلة نهاية الأسبوع',25,'Timing')
-   if dt.day>=29: flag(r,'MONTH_END','قيد قرب نهاية الشهر',25,'Timing')
-   if dt.month==12 and dt.day>=29: flag(r,'YEAR_END','قيد قرب نهاية السنة',40,'Timing')
-  if amt==0: flag(r,'ZERO_AMOUNT','عملية بصفر',45,'Amount')
-  if amt<0: flag(r,'NEGATIVE_AMOUNT','مبلغ سالب',45,'Amount')
-  if amt>=1000 and abs(amt-round(amt))<.0001: flag(r,'ROUND_AMOUNT','مبلغ دائري',30,'Pattern')
-  if amt>=100000 and abs(amt-round(amt))<.0001: flag(r,'LARGE_ROUND_AMOUNT','مبلغ دائري كبير',55,'Pattern')
-  if avg and amt>avg*3 and amt>100: flag(r,'UNUSUAL_AMOUNT_HIGH','مبلغ مرتفع غير معتاد',60,'Outlier')
-  if avg and 0<amt<avg*.10: flag(r,'UNUSUAL_AMOUNT_LOW','مبلغ منخفض غير معتاد',30,'Outlier')
-  if sd and amt>0 and abs((amt-avg)/sd)>=3: flag(r,'AMOUNT_ZSCORE','قيمة شاذة إحصائياً',65,'Statistics')
-  if debit and credit and abs(debit-credit)>.01: flag(r,'DEBIT_CREDIT_MISMATCH','فرق بين المدين والدائن',90,'Journal')
-  elif debit and credit: flag(r,'BOTH_DEBIT_CREDIT','مدين ودائن في السجل نفسه',50,'Journal')
-  if not desc: flag(r,'EMPTY_DESCRIPTION','وصف ناقص',25,'Data Quality')
-  elif len(desc)<6: flag(r,'SHORT_DESCRIPTION','وصف قصير جداً',20,'Data Quality')
-  low=desc.lower()
-  if any(w in low for w in ('cash','urgent','write off','adjustment','نقدي','عاجل','شطب','تعديل')): flag(r,'SUSPICIOUS_KEYWORDS','كلمات تستحق المراجعة',40,'Description')
-  if any(w in low for w in ('manual','تسوية يدوية','قيد يدوي')): flag(r,'MANUAL_JOURNAL','قيد يدوي محتمل',35,'Journal')
-  if not created: flag(r,'MISSING_USER','مستخدم منشئ مفقود',35,'Access')
-  if not supplier: flag(r,'MISSING_SUPPLIER','مورد مفقود',40,'Supplier')
-  if not customer: flag(r,'MISSING_CUSTOMER','عميل مفقود',35,'Customer')
-  if not tax and (net or total): flag(r,'MISSING_TAX','ضريبة مفقودة',35,'Tax')
-  if net and tax:
-   rate=tax/net*100
-   if rate<0 or rate>30: flag(r,'ABNORMAL_TAX_RATE','نسبة ضريبة غير معتادة',45,'Tax')
-   expected=net+tax
-   if total and abs(expected-total)>max(.01,total*.01): flag(r,'TAX_MISMATCH','فرق حساب الضريبة',70,'Tax'); flag(r,'TOTAL_TAX_LOGIC','منطق الإجمالي والضريبة',60,'Tax')
-   elif total and abs(expected-total)>.001: flag(r,'TAX_ROUNDING_DIFFERENCE','فرق تقريب الضريبة',25,'Tax')
-  if total and tax>total: flag(r,'TAX_GT_TOTAL','الضريبة أكبر من الإجمالي',80,'Tax')
-  if supplier and not po: flag(r,'MISSING_PO','أمر شراء مفقود',45,'Procurement')
-  if not approval: flag(r,'MISSING_APPROVAL','اعتماد مفقود',55,'Authorization')
-  if not cc: flag(r,'MISSING_COST_CENTER','مركز تكلفة مفقود',30,'Master Data')
-  if not account: flag(r,'MISSING_ACCOUNT','حساب محاسبي مفقود',55,'Accounting')
-  if account and not re.match(r'^[A-Za-z0-9._/-]{2,30}$',account): flag(r,'INVALID_ACCOUNT_FORMAT','صيغة حساب غير معتادة',35,'Accounting')
-  if not ref: flag(r,'MISSING_REFERENCE','مرجع مستندي مفقود',30,'Documentation')
-  if posting and date and posting[:7]!=date[:7]: flag(r,'POSTING_PERIOD_MISMATCH','عدم تطابق فترة الترحيل',60,'Period')
-  if dt and (dt.hour<7 or dt.hour>=19): flag(r,'AFTER_HOURS','عملية خارج ساعات العمل',30,'Timing')
-  if debit and credit and amt and ((amt>0 and credit<0) or (amt<0 and debit<0)): flag(r,'SIGN_MISMATCH','عدم اتساق إشارة المبلغ',55,'Journal')
- for inv,idxs in invmap.items():
-  if len(idxs)>1:
-   for j in idxs: flag(rec[j],'DUPLICATE_INVOICE','تكرار رقم الفاتورة',75,'Duplicate')
-   if len({round(rec[j]['amount'],2) for j in idxs})>1:
-    for j in idxs: flag(rec[j],'SAME_INVOICE_DIFFERENT_AMOUNT','الفاتورة نفسها بمبالغ مختلفة',85,'Duplicate')
- for key,idxs in exact.items():
-  if len(idxs)>1:
-   for j in idxs: flag(rec[j],'DUPLICATE_TRANSACTION','تكرار العملية بالكامل',80,'Duplicate')
- for key,idxs in damt.items():
-  if len(idxs)>1:
-   for j in idxs: flag(rec[j],'SAME_DATE_AMOUNT','تكرار المبلغ والتاريخ',55,'Pattern')
- total_sup=sum(len(v) for v in sup.values())
- for name,idxs in sup.items():
-  if len(idxs)>=max(5,math.ceil(total_sup*.20)):
-   for j in idxs: flag(rec[j],'SUPPLIER_CONCENTRATION','تركيز مرتفع لمورد',45,'Supplier')
-  if len(idxs)>=10:
-   for j in idxs: flag(rec[j],'DUPLICATE_SUPPLIER','تكرار مرتفع لمورد',30,'Supplier')
- for key,idxs in supday.items():
-  if key[0] and len(idxs)>=5:
-   for j in idxs: flag(rec[j],'SAME_SUPPLIER_DAY','تكرار عمليات المورد في اليوم',40,'Supplier')
-   small=[j for j in idxs if 0<rec[j]['amount']<5000]
-   if len(small)>=4:
-    for j in small: flag(rec[j],'SPLIT_TRANSACTIONS','عمليات متقاربة قد تشير إلى تجزئة',70,'Procurement')
- for ref,idxs in refs.items():
-  if len(idxs)>1:
-   for j in idxs: flag(rec[j],'DUPLICATE_REFERENCE','تكرار المرجع المستندي',65,'Documentation')
- nums=sorted(invnums,key=lambda x:x[0])
- for (n1,_),(n2,j) in zip(nums,nums[1:]):
-  if n2-n1>1: flag(rec[j],'INVOICE_GAP','فجوة في تسلسل الفواتير',35,'Sequence')
- b=benford(rs)
- if en.get('BENFORD_SCREENING') and b>=35 and rec:
-  j=max(range(len(rec)),key=lambda x:rec[x]['amount']); flag(rec[j],'BENFORD_SCREENING','انحراف إحصائي عن Benford',50,'Statistics')
- findings=[r for r in rec if r['risk']>0]; high=sum(r['risk']>=70 for r in findings); med=sum(30<=r['risk']<70 for r in findings); low=sum(r['risk']<30 for r in findings); score=min(100,round(((high*2)+med+low*.25)/(len(rs) or 1)*100)); dup=sum(1 for r in rec if 'تكرار رقم الفاتورة' in r['issues'] or 'تكرار العملية بالكامل' in r['issues']); out=sum(1 for r in rec if 'مبلغ مرتفع غير معتاد' in r['issues'] or 'قيمة شاذة إحصائياً' in r['issues']); return findings,high,med,low,score,b,out,dup
+# -----------------------------
+# 50 Control Rules
+# -----------------------------
+RULES = [
+("R01","تكرار رقم الفاتورة","Duplicate","75"),
+("R02","تكرار العملية بالكامل","Duplicate","80"),
+("R03","نفس الفاتورة بمبالغ مختلفة","Duplicate","85"),
+("R04","تكرار المبلغ والتاريخ","Duplicate","65"),
+("R05","رقم فاتورة مفقود","Documentation","35"),
+("R06","مرجع مستندي مفقود","Documentation","35"),
+("R07","تكرار المرجع المستندي","Duplicate","70"),
+("R08","فجوة في تسلسل الفواتير","Documentation","45"),
+("R09","فاتورة خارج التسلسل","Documentation","40"),
+("R10","تاريخ مفقود","Data Quality","40"),
+("R11","تاريخ غير صالح","Data Quality","55"),
+("R12","تاريخ مستقبلي","Timing","60"),
+("R13","قيد في عطلة نهاية الأسبوع","Timing","25"),
+("R14","عملية خارج ساعات العمل","Timing","35"),
+("R15","قيد قرب نهاية الشهر","Period","35"),
+("R16","قيد قرب نهاية السنة","Period","45"),
+("R17","عدم تطابق فترة الترحيل","Period","70"),
+("R18","مبلغ دائري","Transaction Pattern","20"),
+("R19","مبلغ دائري كبير","Transaction Pattern","35"),
+("R20","مبلغ مرتفع غير معتاد","Outlier","60"),
+("R21","مبلغ منخفض غير معتاد","Outlier","30"),
+("R22","عملية بصفر","Data Quality","45"),
+("R23","مبلغ سالب","Transaction Pattern","35"),
+("R24","قيمة شاذة Z-Score","Outlier","65"),
+("R25","فرق بين المدين والدائن","Journal Entry","90"),
+("R26","وجود مدين ودائن في السجل نفسه","Journal Entry","40"),
+("R27","عدم وجود مدين أو دائن","Journal Entry","45"),
+("R28","عدم اتساق إشارة المبلغ","Journal Entry","55"),
+("R29","حساب محاسبي مفقود","Data Quality","45"),
+("R30","صيغة حساب غير معتادة","Account","45"),
+("R31","وصف ناقص","Data Quality","25"),
+("R32","وصف قصير جدًا","Data Quality","20"),
+("R33","كلمات تستحق المراجعة","Compliance","65"),
+("R34","قيد يدوي محتمل","Journal Entry","40"),
+("R35","مستخدم منشئ مفقود","Access","45"),
+("R36","مورد مفقود","Master Data","35"),
+("R37","تركيز مرتفع لمورد","Concentration","55"),
+("R38","تكرار مرتفع لمورد","Concentration","50"),
+("R39","عمليات المورد في اليوم نفسه","Concentration","45"),
+("R40","عمليات متقاربة قد تشير إلى التجزئة","Split Transactions","70"),
+("R41","عميل مفقود","Master Data","35"),
+("R42","أمر شراء مفقود","Procurement","60"),
+("R43","اعتماد مفقود","Approval","75"),
+("R44","مركز تكلفة مفقود","Data Quality","40"),
+("R45","ضريبة مفقودة","Tax","65"),
+("R46","فرق حساب الضريبة","Tax","75"),
+("R47","نسبة ضريبة غير معتادة","Tax","55"),
+("R48","منطق الإجمالي والضريبة غير متسق","Tax","75"),
+("R49","الضريبة أكبر من الإجمالي","Tax","90"),
+("R50","فرق تقريب الضريبة","Tax","35"),
+]
+RULE_MAP = {r[0]: r for r in RULES}
 
-@app.route('/')
-def home(): return redirect(url_for('dashboard')) if user() else render_template('landing.html',user=None)
-@app.route('/login',methods=['GET','POST'])
-def login():
- if request.method=='POST':
-  u=db().execute('SELECT * FROM users WHERE email=? AND password=?',(request.form['email'].strip().lower(),hp(request.form['password']))).fetchone()
-  if u: session.clear(); session['uid']=u['id']; log('login'); return redirect(url_for('dashboard'))
-  flash('بيانات الدخول غير صحيحة.','error')
- return render_template('login.html',user=None)
-@app.route('/logout')
-def logout(): session.clear(); return redirect(url_for('home'))
-@app.route('/dashboard')
-@req
-def dashboard():
- u=user()
- if u['role']=='super_admin': runs=db().execute('SELECT a.*,c.name company FROM audit_runs a JOIN companies c ON c.id=a.company_id ORDER BY a.id DESC LIMIT 50').fetchall(); companies=db().execute('SELECT * FROM companies ORDER BY id DESC').fetchall(); users=db().execute('SELECT u.*,c.name company FROM users u LEFT JOIN companies c ON c.id=u.company_id ORDER BY u.id DESC').fetchall(); total=db().execute('SELECT COUNT(*) c FROM companies').fetchone()['c']
- else: runs=db().execute('SELECT * FROM audit_runs WHERE company_id=? ORDER BY id DESC LIMIT 50',(u['company_id'],)).fetchall(); companies=[]; users=[]; total=1
- return render_template('dashboard.html',user=u,runs=runs,companies=companies,users=users,total_companies=total)
-@app.route('/upload',methods=['POST'])
-@req
-def upload():
- u=user(); cid=int(request.form.get('company_id') or u['company_id']); abort(403) if not access(cid) else None; f=request.files.get('file')
- if not f or not f.filename: flash('اختر ملفاً أولاً.','error'); return redirect(url_for('dashboard'))
- if os.path.splitext(f.filename)[1].lower() not in ('.csv','.xlsx'): flash('الصيغ المسموحة CSV و XLSX.','error'); return redirect(url_for('dashboard'))
- path=os.path.join(UP,secrets.token_hex(10)+'_'+secure_filename(f.filename)); f.save(path)
- try:
-  rs=read_rows(path); en={r['code']:bool(r['enabled']) for r in db().execute('SELECT * FROM rules')}; findings,high,med,low,score,b,outs,dups=analyze(rs,en)
- except Exception as e: flash('تعذر تحليل الملف: '+str(e),'error'); return redirect(url_for('dashboard'))
- finally:
-  try: os.remove(path)
-  except: pass
- d=db(); d.execute('INSERT INTO audit_runs(company_id,filename,total,high,medium,low,risk_score,benford_score,duplicate_candidates,outlier_count,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(cid,f.filename,len(rs),high,med,low,score,b,dups,outs,now())); rid=d.execute('SELECT last_insert_rowid()').fetchone()[0]
- for x in findings: d.execute('INSERT INTO findings(run_id,row_no,txn_date,description,amount,invoice,issues,risk,category) VALUES(?,?,?,?,?,?,?,?,?)',(rid,x['row_no'],x['date'],x['description'],x['amount'],x['invoice'],' | '.join(x['issues']),x['risk'],', '.join(sorted(set(x['categories'])))))
- d.commit(); log('audit_run_created','audit_run',rid); return redirect(url_for('run_detail',run_id=rid))
-@app.route('/run/<int:run_id>')
-@req
-def run_detail(run_id):
- u=user(); r=db().execute('SELECT a.*,c.name company FROM audit_runs a JOIN companies c ON c.id=a.company_id WHERE a.id=?',(run_id,)).fetchone(); abort(403) if not r or not access(r['company_id']) else None; fs=db().execute('SELECT * FROM findings WHERE run_id=? ORDER BY risk DESC,id',(run_id,)).fetchall(); return render_template('run.html',user=u,run=r,findings=fs)
-@app.route('/finding/<int:fid>',methods=['POST'])
-@req
-def update_finding(fid):
- d=db(); f=d.execute('SELECT f.*,a.company_id FROM findings f JOIN audit_runs a ON a.id=f.run_id WHERE f.id=?',(fid,)).fetchone(); abort(403) if not f or not access(f['company_id']) else None; status=request.form.get('status','Pending'); note=request.form.get('review_note','')[:1500]; d.execute('UPDATE findings SET status=?,review_note=? WHERE id=?',(status,note,fid)); d.commit(); log('finding_reviewed','finding',fid); return redirect(url_for('run_detail',run_id=f['run_id']))
-@app.route('/export/<int:run_id>')
-@req
-def export_run(run_id):
- d=db(); r=d.execute('SELECT * FROM audit_runs WHERE id=?',(run_id,)).fetchone(); abort(403) if not r or not access(r['company_id']) else None; out=io.StringIO(); w=csv.writer(out); w.writerow(['Row','Date','Description','Amount','Invoice','Issues','Risk','Category','Status','Review Note'])
- for f in d.execute('SELECT * FROM findings WHERE run_id=? ORDER BY risk DESC',(run_id,)): w.writerow([f['row_no'],f['txn_date'],f['description'],f['amount'],f['invoice'],f['issues'],f['risk'],f['category'],f['status'],f['review_note']])
- return send_file(io.BytesIO(('\ufeff'+out.getvalue()).encode('utf-8')),as_attachment=True,download_name=f'MizanRisk_Report_{run_id}.csv',mimetype='text/csv')
-@app.route('/admin/rules',methods=['GET','POST'])
-@admin
-def admin_rules():
- d=db()
- if request.method=='POST':
-  for r in d.execute('SELECT id FROM rules'): d.execute('UPDATE rules SET enabled=? WHERE id=?',(1 if request.form.get(f"rule_{r['id']}") else 0,r['id']))
-  d.commit(); flash('تم حفظ إعدادات قواعد الرقابة.','success')
- return render_template('rules.html',user=user(),rules=d.execute('SELECT * FROM rules ORDER BY id').fetchall())
-@app.route('/admin/company',methods=['POST'])
-@admin
-def create_company():
- name=request.form.get('name','').strip()
- if name:
-  d=db(); d.execute('INSERT INTO companies(name,created_at) VALUES(?,?)',(name,now())); cid=d.execute('SELECT last_insert_rowid()').fetchone()[0]; d.execute('INSERT INTO subscriptions(company_id,plan,status,expires_at) VALUES(?,?,?,?)',(cid,'Trial','active','2026-12-31')); d.commit()
- return redirect(url_for('dashboard'))
-@app.route('/admin/user',methods=['POST'])
-@admin
-def create_user():
- try:
-  d=db(); d.execute('INSERT INTO users(name,email,password,role,company_id) VALUES(?,?,?,?,?)',(request.form['name'].strip(),request.form['email'].strip().lower(),hp(request.form['password']),'company_admin',int(request.form['company_id']))); d.commit(); flash('تم إنشاء المستخدم.','success')
- except Exception as e: flash('تعذر إنشاء المستخدم: '+str(e),'error')
- return redirect(url_for('dashboard'))
-@app.route('/health')
-def health(): return {'status':'ok','service':'Mizan Financial Risk Intelligence','rules':len(RULES),'time':now()}
-if __name__=='__main__': app.run(host='0.0.0.0',port=int(os.getenv('PORT','5000')),debug=False)
+DEMO_USERS = {
+    "admin@mizanrisk.local": ("Admin123!", "super_admin"),
+    "demo@mizanrisk.local": ("Demo123!", "company_admin"),
+}
+
+def sha(s):
+    return hashlib.sha256(s.encode()).hexdigest()
+
+def norm(s):
+    return re.sub(r"[\s_\-]+", "", str(s).strip().lower())
+
+def find_col(df, aliases):
+    m = {norm(c): c for c in df.columns}
+    for a in aliases:
+        if norm(a) in m:
+            return m[norm(a)]
+    return None
+
+def num_series(df, aliases):
+    c = find_col(df, aliases)
+    if not c:
+        return pd.Series([0.0] * len(df), index=df.index), None
+    return pd.to_numeric(
+        df[c].astype(str).str.replace(",", "", regex=False).str.replace(" ", "", regex=False),
+        errors="coerce"
+    ).fillna(0), c
+
+def date_series(df):
+    c = find_col(df, ["date","transaction date","posting date","التاريخ","تاريخ القيد","تاريخ العملية"])
+    if not c:
+        return pd.Series([pd.NaT] * len(df), index=df.index), None
+    return pd.to_datetime(df[c], errors="coerce"), c
+
+def text_series(df, aliases):
+    c = find_col(df, aliases)
+    if not c:
+        return pd.Series([""] * len(df), index=df.index), None
+    return df[c].fillna("").astype(str).str.strip(), c
+
+def benford_score(amounts):
+    vals = [abs(float(x)) for x in amounts if float(x) != 0]
+    counts = {i:0 for i in range(1,10)}
+    for x in vals:
+        s = re.sub(r"\D","",str(x))
+        if s and s[0] in "123456789":
+            counts[int(s[0])] += 1
+    total = sum(counts.values())
+    if total < 20:
+        return 0.0
+    deviation = 0
+    for d in range(1,10):
+        observed = counts[d] / total
+        expected = math.log10(1 + 1/d)
+        deviation += abs(observed - expected)
+    return round(min(100, deviation * 300), 2)
+
+def analyze(df, enabled):
+    amount, amount_col = num_series(df, ["amount","المبلغ","value","قيمة","debit","مدين"])
+    debit, debit_col = num_series(df, ["debit","مدين"])
+    credit, credit_col = num_series(df, ["credit","دائن"])
+    tax, tax_col = num_series(df, ["tax","vat","ضريبة","ضريبة القيمة المضافة"])
+    total, total_col = num_series(df, ["total","grand total","الإجمالي","اجمالي"])
+    date, date_col = date_series(df)
+    desc, desc_col = text_series(df, ["description","desc","الوصف","البيان"])
+    invoice, invoice_col = text_series(df, ["invoice","invoice no","invoice number","رقم الفاتورة","الفاتورة"])
+    ref, ref_col = text_series(df, ["reference","document reference","ref","المرجع","رقم المستند"])
+    supplier, supplier_col = text_series(df, ["supplier","vendor","المورد","اسم المورد"])
+    customer, customer_col = text_series(df, ["customer","client","العميل","اسم العميل"])
+    account, account_col = text_series(df, ["account","account code","الحساب","رقم الحساب"])
+    user, user_col = text_series(df, ["user","created by","entered by","المستخدم","منشئ القيد"])
+    po, po_col = text_series(df, ["po","purchase order","أمر الشراء","رقم أمر الشراء"])
+    approval, approval_col = text_series(df, ["approval","approved by","اعتماد","المعتمد"])
+    cost_center, cc_col = text_series(df, ["cost center","مركز التكلفة","مركز تكلفة"])
+    posting_period, pp_col = text_series(df, ["period","posting period","الفترة","فترة الترحيل"])
+
+    positive = amount[amount > 0]
+    avg = float(positive.mean()) if len(positive) else 0
+    std = float(positive.std()) if len(positive) > 1 else 0
+
+    findings = []
+    n = len(df)
+
+    # Pre-compute group information
+    invoice_counts = invoice[invoice != ""].value_counts()
+    ref_counts = ref[ref != ""].value_counts()
+    supplier_counts = supplier[supplier != ""].value_counts()
+    supplier_day = pd.DataFrame({"supplier":supplier, "date":date.dt.date}).groupby(["supplier","date"]).size() if supplier_col and date_col else pd.Series(dtype=int)
+    exact_keys = pd.DataFrame({
+        "date": date.dt.strftime("%Y-%m-%d"),
+        "amount": amount.round(2).astype(str),
+        "desc": desc.str.lower()
+    }).astype(str).agg("|".join, axis=1).value_counts()
+    invoice_amounts = {}
+    if invoice_col:
+        for inv, g in pd.DataFrame({"invoice":invoice,"amount":amount}).query("invoice != ''").groupby("invoice"):
+            invoice_amounts[inv] = set(g["amount"].round(2).tolist())
+
+    for idx in df.index:
+        issues = []
+        scores = []
+        categories = []
+
+        def add(code, condition):
+            if enabled.get(code, True) and condition:
+                r = RULE_MAP[code]
+                issues.append(r[1]); scores.append(int(r[3])); categories.append(r[2])
+
+        inv = invoice.loc[idx]
+        rv = ref.loc[idx]
+        sup = supplier.loc[idx]
+        descv = desc.loc[idx]
+        amt = float(amount.loc[idx])
+        dt = date.loc[idx]
+
+        add("R01", bool(inv) and invoice_counts.get(inv,0) > 1)
+        add("R02", exact_keys.get("|".join([str(dt.date()) if pd.notna(dt) else "", str(round(amt,2)), descv.lower()]),0) > 1)
+        add("R03", bool(inv) and len(invoice_amounts.get(inv,set())) > 1)
+        add("R04", bool(date_col) and bool((pd.DataFrame({"d":date.dt.date,"a":amount.round(2)}) == {"d":dt.date() if pd.notna(dt) else None,"a":round(amt,2)}).all(axis=1).sum() > 1))
+        add("R05", invoice_col is None or not inv)
+        add("R06", ref_col is None or not rv)
+        add("R07", bool(rv) and ref_counts.get(rv,0) > 1)
+
+        if invoice_col and inv:
+            nums = pd.to_numeric(invoice[invoice != ""].str.extract(r"(\d+)")[0], errors="coerce").dropna().astype(int)
+            add("R08", len(nums) > 5 and int(re.sub(r"\D","",inv) or 0) > 0 and int(re.sub(r"\D","",inv)) < int(nums.max()))
+            add("R09", False)
+        else:
+            add("R08", False); add("R09", False)
+
+        add("R10", date_col is None or pd.isna(dt))
+        add("R11", date_col is not None and pd.isna(dt))
+        add("R12", pd.notna(dt) and dt.to_pydatetime() > datetime.now())
+        add("R13", pd.notna(dt) and dt.weekday() >= 5)
+        add("R14", False)
+        add("R15", pd.notna(dt) and dt.day >= 26)
+        add("R16", pd.notna(dt) and dt.month == 12 and dt.day >= 26)
+        add("R17", bool(posting_period.loc[idx]) and pd.notna(dt) and str(dt.month) not in str(posting_period.loc[idx]))
+
+        add("R18", abs(amt-round(amt/100)*100) < 0.01 and amt >= 100)
+        add("R19", abs(amt-round(amt)) < 0.01 and amt >= 1000)
+        add("R20", avg > 0 and amt > avg*3)
+        add("R21", avg > 0 and 0 < amt < avg*0.05)
+        add("R22", amt == 0)
+        add("R23", amt < 0)
+        z = abs((amt - avg) / std) if std > 0 else 0
+        add("R24", z >= 3)
+
+        has_debit = debit_col is not None and abs(float(debit.loc[idx])) > 0
+        has_credit = credit_col is not None and abs(float(credit.loc[idx])) > 0
+        add("R25", debit_col is not None and credit_col is not None and abs(float(debit.loc[idx])-float(credit.loc[idx])) > 0.01)
+        add("R26", has_debit and has_credit)
+        add("R27", debit_col is not None and credit_col is not None and not has_debit and not has_credit)
+        add("R28", False)
+        add("R29", account_col is None or not account.loc[idx])
+        add("R30", False)
+
+        add("R31", not descv)
+        add("R32", bool(descv) and len(descv) < 5)
+        keywords = ["cash","manual","adjustment","urgent","personal","gift","misc","تسوية","عاجل","شخصي","متنوع"]
+        add("R33", any(k in descv.lower() for k in keywords))
+        add("R34", any(k in descv.lower() for k in ["manual","قيد يدوي","تسوية"]))
+        add("R35", user_col is None or not user.loc[idx])
+
+        add("R36", supplier_col is None or not sup)
+        add("R37", bool(sup) and len(supplier_counts)>0 and supplier_counts.get(sup,0) > max(10, n*0.30))
+        add("R38", bool(sup) and supplier_counts.get(sup,0) > 20)
+        same_day = supplier_day.get((sup, dt.date()), 0) if supplier_col and pd.notna(dt) else 0
+        add("R39", bool(sup) and same_day > 3)
+        add("R40", bool(sup) and same_day > 5 and 0 < amt < max(avg*0.25, 100))
+        add("R41", customer_col is not None and not customer.loc[idx])
+        add("R42", po_col is None or not po.loc[idx])
+        add("R43", approval_col is None or not approval.loc[idx])
+        add("R44", cc_col is None or not cost_center.loc[idx])
+
+        tax_value = float(tax.loc[idx])
+        total_value = float(total.loc[idx])
+        add("R45", tax_col is None and total_col is not None)
+        add("R46", tax_col is not None and total_col is not None and abs(total_value - amt - tax_value) > max(0.02, abs(total_value)*0.001))
+        tax_rate = tax_value / amt if amt else 0
+        add("R47", tax_col is not None and amt > 0 and tax_value > 0 and not (0.05 <= tax_rate <= 0.20))
+        add("R48", tax_col is not None and total_col is not None and total_value > 0 and abs(total_value - (amt + tax_value)) > 0.02)
+        add("R49", tax_col is not None and tax_value > total_value and total_value > 0)
+        add("R50", tax_col is not None and total_col is not None and abs((amt+tax_value)-total_value) > 0 and abs((amt+tax_value)-total_value) < 1)
+
+        if issues:
+            max_score = max(scores)
+            if max_score >= 70:
+                level = "High"
+            elif max_score >= 30:
+                level = "Medium"
+            else:
+                level = "Low"
+            findings.append({
+                "Row": int(idx)+2,
+                "Date": "" if pd.isna(dt) else dt.strftime("%Y-%m-%d"),
+                "Description": descv,
+                "Amount": round(amt,2),
+                "Invoice": inv,
+                "Issues": " | ".join(issues),
+                "Category": " | ".join(sorted(set(categories))),
+                "Risk": max_score,
+                "Level": level,
+            })
+
+    result = pd.DataFrame(findings)
+    return result, {
+        "benford": benford_score(amount),
+        "total": n,
+        "high": int((result["Level"]=="High").sum()) if not result.empty else 0,
+        "medium": int((result["Level"]=="Medium").sum()) if not result.empty else 0,
+        "low": int((result["Level"]=="Low").sum()) if not result.empty else 0,
+        "duplicates": int(result["Issues"].str.contains("تكرار", na=False).sum()) if not result.empty else 0,
+        "outliers": int(result["Issues"].str.contains("شاذ|غير معتاد", regex=True, na=False).sum()) if not result.empty else 0,
+    }
+
+# -----------------------------
+# Session state
+# -----------------------------
+for key, default in {
+    "authenticated": False,
+    "email": "",
+    "role": "",
+    "company": "Demo Company",
+    "data": None,
+    "findings": None,
+    "summary": None,
+    "enabled": {r[0]: True for r in RULES},
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+# -----------------------------
+# Login
+# -----------------------------
+if not st.session_state.authenticated:
+    st.markdown("""
+    <div class="hero">
+      <div class="pulse" style="font-size:13px;color:#8be4ff;font-weight:800;letter-spacing:1px">MIZAN FINANCIAL RISK INTELLIGENCE</div>
+      <h1>حوّل البيانات المالية إلى <span class="accent">رؤية واضحة للمخاطر</span></h1>
+      <p>منصة للرقابة المالية، فحص العمليات، واكتشاف مؤشرات المخاطر القابلة للمراجعة. النتائج مؤشرات تحليلية وليست رأيًا في التدقيق القانوني.</p>
+      <span class="pill">50 Control Rules</span><span class="pill">Risk Scoring</span><span class="pill">Benford Screening</span><span class="pill">Duplicate Indicators</span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("### تسجيل الدخول")
+    c1, c2 = st.columns([1,1])
+    with c1:
+        email = st.text_input("البريد الإلكتروني")
+        password = st.text_input("كلمة المرور", type="password")
+        if st.button("دخول إلى المنصة", type="primary", use_container_width=True):
+            if email.lower() in DEMO_USERS and password == DEMO_USERS[email.lower()][0]:
+                st.session_state.authenticated = True
+                st.session_state.email = email.lower()
+                st.session_state.role = DEMO_USERS[email.lower()][1]
+                st.rerun()
+            else:
+                st.error("بيانات الدخول غير صحيحة.")
+    with c2:
+        st.info("الحساب التجريبي\n\nadmin@mizanrisk.local\n\nAdmin123!")
+    st.markdown('<div class="legal"><b>تنبيه مهني:</b> Mizan هي منصة للرقابة المالية واكتشاف مؤشرات المخاطر والتحليل الإداري. لا تعتبر النتائج إثباتًا للاحتيال ولا رأيًا في التدقيق الخارجي أو القانوني.</div>', unsafe_allow_html=True)
+    st.stop()
+
+# -----------------------------
+# Sidebar
+# -----------------------------
+with st.sidebar:
+    st.markdown("## ⚖️ ميزان")
+    st.caption("Financial Risk Intelligence")
+    st.write(f"المستخدم: **{st.session_state.email}**")
+    st.write(f"الدور: **{st.session_state.role}**")
+    page = st.radio("القائمة", ["الرئيسية","تحليل البيانات","النتائج","قواعد الرقابة","عن المنصة"])
+    if st.button("تسجيل الخروج", use_container_width=True):
+        st.session_state.authenticated = False
+        st.rerun()
+
+# -----------------------------
+# Home
+# -----------------------------
+if page == "الرئيسية":
+    st.markdown("""
+    <div class="hero">
+      <div style="font-size:12px;color:#8be4ff;font-weight:800;letter-spacing:2px">FINANCIAL CONTROL • RISK DETECTION</div>
+      <h1>من البيانات المالية إلى <span class="accent">أولويات المراجعة</span></h1>
+      <p>محرك رقابي يساعدك على تحديد العمليات التي تستحق الفحص، مع تفسير سبب ظهور كل مؤشر ودرجة خطورته.</p>
+      <span class="pill">50 قاعدة رقابية</span><span class="pill">Z-Score</span><span class="pill">Benford</span><span class="pill">Duplicate Screening</span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("### كيف يعمل النظام؟")
+    a,b,c,d = st.columns(4)
+    for col, num, title, txt in [
+        (a,"01","رفع البيانات","CSV أو Excel"),
+        (b,"02","فحص 50 قاعدة","مؤشرات متعددة"),
+        (c,"03","Risk Score","ترتيب الأولويات"),
+        (d,"04","Review","قرار بشري موثق"),
+    ]:
+        with col:
+            st.markdown(f'<div class="metric-card"><div class="metric-value">{num}</div><b>{title}</b><div class="small-muted">{txt}</div></div>', unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown('<div class="legal"><b>الوضع القانوني للمنتج:</b> تم تصميمه كمنصة Financial Control & Risk Intelligence. هو نظام مساعدة في الرقابة وتحليل المخاطر، وليس جهة تدقيق معتمدة ولا يصدر رأيًا تدقيقيًا قانونيًا.</div>', unsafe_allow_html=True)
+
+# -----------------------------
+# Upload / Analysis
+# -----------------------------
+elif page == "تحليل البيانات":
+    st.title("تحليل البيانات المالية")
+    st.write("ارفع ملف CSV أو XLSX. يفضل وجود أعمدة مثل: التاريخ، المبلغ، رقم الفاتورة، الوصف، المورد، المدين، الدائن، الضريبة.")
+    uploaded = st.file_uploader("رفع ملف البيانات", type=["csv","xlsx"])
+    if uploaded:
+        try:
+            if uploaded.name.lower().endswith(".csv"):
+                df = pd.read_csv(uploaded)
+            else:
+                df = pd.read_excel(uploaded)
+            st.session_state.data = df
+            st.success(f"تم تحميل {len(df):,} عملية.")
+            st.dataframe(df.head(20), use_container_width=True, height=350)
+            if st.button("تشغيل محرك الـ 50 قاعدة", type="primary", use_container_width=True):
+                with st.spinner("جاري تحليل العمليات وتشغيل قواعد الرقابة..."):
+                    findings, summary = analyze(df, st.session_state.enabled)
+                st.session_state.findings = findings
+                st.session_state.summary = summary
+                st.success("اكتمل التحليل.")
+        except Exception as e:
+            st.error(f"تعذر قراءة الملف: {e}")
+
+# -----------------------------
+# Results
+# -----------------------------
+elif page == "النتائج":
+    st.title("لوحة نتائج الرقابة")
+    if st.session_state.findings is None:
+        st.info("لم يتم تشغيل تحليل بعد. اذهب إلى «تحليل البيانات».")
+    else:
+        s = st.session_state.summary
+        f = st.session_state.findings
+        risk_score = min(100, int((s["high"]*2 + s["medium"]) / max(1,s["total"]) * 100))
+        cols = st.columns(5)
+        metrics = [
+            ("Risk Score",f"{risk_score}/100"),
+            ("High Risk",s["high"]),
+            ("Medium Risk",s["medium"]),
+            ("Duplicates",s["duplicates"]),
+            ("Benford",s["benford"]),
+        ]
+        for col,(t,v) in zip(cols,metrics):
+            with col:
+                st.markdown(f'<div class="metric-card"><div class="metric-title">{t}</div><div class="metric-value">{v}</div></div>', unsafe_allow_html=True)
+        st.markdown("### توزيع المخاطر")
+        if not f.empty:
+            chart = f["Level"].value_counts().reindex(["High","Medium","Low"]).fillna(0)
+            st.bar_chart(chart)
+            st.dataframe(f.sort_values(["Risk","Row"], ascending=[False,True]), use_container_width=True, height=600)
+            csv = f.to_csv(index=False).encode("utf-8-sig")
+            st.download_button("تحميل تقرير CSV", csv, "Mizan_Risk_Report.csv", "text/csv", use_container_width=True)
+        else:
+            st.success("لم تظهر مؤشرات رقابية في البيانات وفق القواعد المفعلة.")
+
+# -----------------------------
+# Rules
+# -----------------------------
+elif page == "قواعد الرقابة":
+    st.title("50 قاعدة رقابية")
+    st.caption("يمكنك تشغيل/إيقاف القواعد قبل إعادة التحليل.")
+    for i in range(0, len(RULES), 2):
+        c1, c2 = st.columns(2)
+        for col, rule in zip([c1,c2], RULES[i:i+2]):
+            code,name,cat,score = rule
+            with col:
+                enabled = st.checkbox(
+                    f"{code} — {name} [{cat} | {score}]",
+                    value=st.session_state.enabled.get(code, True),
+                    key=f"rule_{code}"
+                )
+                st.session_state.enabled[code] = enabled
+    st.success(f"القواعد المفعلة: {sum(st.session_state.enabled.values())} / 50")
+
+# -----------------------------
+# About
+# -----------------------------
+else:
+    st.title("عن Mizan")
+    st.markdown("""
+    ### Mizan Financial Risk Intelligence
+    **ميزان للرقابة المالية وإدارة المخاطر**
+
+    المنصة موجهة للمحاسبين، مسؤولي الرقابة المالية، CFOs، وفرق المخاطر لمساعدتهم في فحص البيانات وتحديد العمليات التي تستحق المراجعة.
+
+    **المحرك الحالي يتضمن 50 قاعدة رقابية** إضافة إلى Benford Screening وZ-Score.
+
+    ### مبدأ العمل
+    1. البيانات تدخل إلى المنصة.
+    2. يتم تشغيل قواعد الرقابة.
+    3. يتم إنشاء مؤشرات ومخاطر.
+    4. يقوم المختص بمراجعة الحالة.
+    5. القرار النهائي يبقى قرارًا بشريًا موثقًا.
+
+    ### مهم
+    المنصة لا تصدر رأيًا تدقيقيًا قانونيًا ولا تدعي اكتشاف جريمة أو احتيال بصورة قطعية.
+    """)
+
+st.markdown("---")
+st.caption("Mizan Financial Risk Intelligence • Financial Control • Risk Detection • Management Insights")
 
